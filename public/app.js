@@ -24,7 +24,7 @@ const SIDEBAR = [
   { group: '剧本创作', items: [
     { id: 'gen', name: 'AI 剧本生成', icon: 'spark', hot: true },
     { id: 'format', name: '格式转换', icon: 'type' },
-    { id: 'storyboard', name: '分镜脚本', icon: 'grid', hot: true },
+    { id: 'storyboard', name: '剧本转分镜', icon: 'grid', hot: true },
   ]},
   { group: '质量把控', items: [
     { id: 'evaluate', name: '剧本评估', icon: 'shield' },

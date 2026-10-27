@@ -1,4 +1,4 @@
-/* 视图域：分镜脚本 —— 剧本 → 15 秒分镜段 → 段内子镜头 + 段提示词
+/* 视图域：剧本转分镜 —— 剧本 → 15 秒分镜段 → 段内子镜头 + 段提示词
  *
  * 2026-10-19 v2：按「15 秒一段」拆，段内 3–6 个子镜头；每段输出一条时间轴提示词，
  * 可直接喂 10–15 秒视频模型。结构由服务端 12 道门确定性校验，模型不可用时规则切段。
@@ -24,22 +24,16 @@ const epList = () => (curInput()?.script?.episodes ?? []).map((e) => e.ep);
 function splitForm() {
   const g = curInput();
   const eps = epList();
-  const styles = state.meta?.styles ?? [];
   const live = isLiveLLM();
   const cur = Number(state.cfg.shotEp) || eps[0] || 1;
 
   return `<div class="card">
     <div class="card-head"><div><h2>拆分这一集</h2><div class="sub">调模型把剧本拆成 15 秒分镜段，每段再分 3–6 个子镜头，并给每段一条时间轴提示词。一集一次调用；12 道门确定性校验，不过带诊断重修一轮</div></div>
       <span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span></div>
-    <div class="grid-3">
+    <div class="grid-2">
       <label class="field"><span class="fl">第几集</span>
         <select class="editable" data-cfg="shotEp" ${g ? '' : 'disabled'}>
           ${eps.map((n) => `<option value="${n}" ${n === cur ? 'selected' : ''}>第 ${n} 集</option>`).join('') || '<option>先载入剧本</option>'}
-        </select></label>
-      <label class="field"><span class="fl">画风</span>
-        <select class="editable" data-cfg="style">
-          <option value="">跟随项目默认</option>
-          ${styles.map((s) => `<option value="${s.id}" ${state.cfg.style === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}
         </select></label>
       <label class="field"><span class="fl">画幅</span>
         <select class="editable" data-cfg="aspect">
@@ -135,7 +129,7 @@ export function viewStoryboard() {
   const live = isLiveLLM();
   const tags = `<span class="tag purple">15 秒 × 子镜头</span><span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span><span class="tag blue">12 道结构门</span>`;
   return pageHead(
-    '剧本创作', '分镜脚本',
+    '剧本创作', '剧本转分镜',
     '把一集剧本拆成 15 秒分镜段，段内再分 3–6 个子镜头；每段给一条时间轴提示词，可直接生成 15 秒视频。',
     tags,
   ) + importCard({ previewOpen: false }) + splitForm() + resultCard(state.data.shots);

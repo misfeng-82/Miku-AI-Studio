@@ -17,7 +17,7 @@ export const STAGE_LABELS = Object.freeze({
   script: '剧本正文',
   evaluate: '剧本评估',
   checkup: '内容体检',
-  storyboard: '分镜脚本',
+  storyboard: '剧本转分镜',
 });
 
 function emptyStage() {

@@ -136,7 +136,7 @@ export const state = {
     // genGenreIds 是有序多选：第 1 个是主题材（决定 genreId），其余作为「融合参考」拼进创意
     genConcept: '', genGenre: '都市重生复仇', genGenreIds: [], genCustom: '',
     genEra: '', genChannel: '', genFormat: 'micro', genEpisodes: 40, genVariantSeed: 0,
-    // 分镜脚本：当前在拆第几集
+    // 剧本转分镜：当前在拆第几集
     shotEp: 1,
     fmt: 'short-drama', polishLine: '', titleGenre: '悬疑', titleKw: '', titleHook: '', titleCount: 12,
   },
