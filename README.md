@@ -1,5 +1,7 @@
 # Miku AI创作平台 · MIKU AI STUDIO
 
+[![CI](https://github.com/misfeng-82/miku-ai-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/misfeng-82/miku-ai-studio/actions/workflows/ci.yml)
+
 浅色暖纸工作台，**19 个功能入口**，跑在一个网页里。零第三方依赖（只用 Node 标准库 + 原生 ES Module），无需 `npm install`。
 
 ## 运行前提：必须接入模型
