@@ -1,0 +1,43 @@
+# Render 蓝图：把仓库连到 Render 后，它会读这个文件自动建服务
+#
+# 用法：Render 控制台 → New → Blueprint → 选这个仓库 → Apply
+# 或者不建蓝图，手动 New → Web Service，把下面的值和界面对上即可。
+#
+# 关键点：
+#   - 本项目零依赖，不需要 npm install，构建命令留空
+#   - 启动入口是 src/server.js；它会在注入 PORT 时自动绑 0.0.0.0
+#   - ACCESS_TOKEN 不写进仓库（sync: false），部署时在控制台填一次
+#   - 免费实例的文件系统是临时的：data/ 在重启或重新部署后会清空
+
+services:
+  - type: web
+    name: miku-drama-studio
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+
+    # 零依赖：没有要装的包，也没有构建步骤
+    buildCommand: echo "no dependencies to install"
+    startCommand: node src/server.js
+
+    # Render 用这个路径判断实例是否真的起来了
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # 离线样本引擎：不连外部模型，不产生费用
+      - key: USE_MOCK
+        value: "1"
+      - key: CRAWL_USE_MOCK
+        value: "1"
+      # 访问口令：部署后在控制台的 Environment 里填，绝不写进仓库
+      - key: ACCESS_TOKEN
+        sync: false
+      # 站点域名确定后，把它填进来（同源访问其实不需要，跨域调用才需要）
+      - key: CORS_ORIGINS
+        sync: false

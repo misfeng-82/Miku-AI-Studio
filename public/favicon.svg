@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Miku AI创作平台">
+  <!--
+    Miku 字标 · M 单字母几何构成
+    网格：32×32，字形占 23×23（4.5 → 27.5），四周留白 4.5
+    笔画：竖杠与斜杠统一 5.4 单位（约 17% 字高），保证 16px 下不糊
+    形状：实心填充而非描边——细描边在 16px 缩放后会发虚，实心轮廓不会
+    配色：与侧栏品牌块同一套墨绿渐变（135°，#17B98F → #0E6E5C → #0A5849）
+  -->
+  <defs>
+    <linearGradient id="miku-brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17B98F"/>
+      <stop offset=".6" stop-color="#0E6E5C"/>
+      <stop offset="1" stop-color="#0A5849"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#miku-brand)"/>
+  <path fill="#ffffff" d="M4.5 27.5V4.5h5.4L16 13.6l6.1-9.1h5.4v23h-5.4V12.1L16 21.2l-6.1-9.1v15.4z"/>
+</svg>

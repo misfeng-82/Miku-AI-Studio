@@ -1,0 +1,40 @@
+[Unit]
+Description=Miku AI创作平台（Node 服务）
+Documentation=https://github.com/你的用户名/你的仓库
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=miku
+Group=miku
+WorkingDirectory=/opt/miku
+
+# 本项目不会自动读 .env，必须由 systemd 注入环境变量
+EnvironmentFile=/etc/miku/miku.env
+ExecStart=/usr/local/bin/node src/server.js
+
+Restart=always
+RestartSec=3
+# 停止时给在途请求留出收尾时间（应用自身也有 10s 优雅停机）
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# ── 加固：应用只需要读代码 + 写数据目录 ──
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# ProtectSystem=strict 会把整个文件系统挂成只读，只放开数据目录
+ReadWritePaths=/var/lib/miku
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
