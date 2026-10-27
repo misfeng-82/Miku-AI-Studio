@@ -3,6 +3,7 @@ import { logger } from '../logger.js';
 import { upstreamError } from '../errors.js';
 import { loadJsonLike } from './jsonRepair.js';
 import { mockComplete } from './mockData.js';
+import { classifyError, backoffMs, ERROR_KIND, JSON_REPAIR_HINT } from './retryPolicy.js';
 import { chatComplete, normalizeSettings, applyPreset, PRESETS } from './llmClient.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import * as llmUsageRepo from '../repo/llmUsageRepo.js';
@@ -49,7 +50,7 @@ export function status() {
   };
 }
 
-export async function complete({ system = '', user = '', signal } = {}) {
+export async function complete({ system = '', user = '', signal, attempt = 1 } = {}) {
   const { cfg, source } = effectiveConfig();
   if (source === 'mock' || !cfg) {
     logger.debug('llm.mock', { chars: user.length });
@@ -72,6 +73,7 @@ export async function complete({ system = '', user = '', signal } = {}) {
       model: model ?? cfg.model,
       ms: Date.now() - t0,
       ok: true,
+      attempt,
       // OpenAI 用 prompt/completion_tokens，Anthropic 用 input/output_tokens
       promptTokens: usage?.prompt_tokens ?? usage?.input_tokens ?? 0,
       completionTokens: usage?.completion_tokens ?? usage?.output_tokens ?? 0,
@@ -79,28 +81,54 @@ export async function complete({ system = '', user = '', signal } = {}) {
     return text;
   } catch (err) {
     // 失败的调用也要记：用户要能看到「刚才那次为什么失败、等了多久才失败」
-    llmUsageRepo.record({ task, model: cfg.model, ms: Date.now() - t0, ok: false, error: err.message });
+    llmUsageRepo.record({ task, model: cfg.model, ms: Date.now() - t0, ok: false, attempt, error: err.message });
     throw err;
   }
 }
 
 /**
- * 带重试与 JSON 兜底的一次「问-答」。
- * 重试只针对传输层/解析失败；业务性失败交给上层判定，不在这里盲目重试。
+ * 带「分类重试」与 JSON 兜底的一次「问-答」。
+ *
+ * 与旧版的关键差别：旧版把所有错误一律重试 N 次，导致两类纯浪费——
+ *   · 余额不足 / Key 无效 / 模型名不存在：重试一万次也不会变好
+ *   · 超时：拿同一份超大输入重试，大概率再超时，只是又等 120 秒
+ * 现在按 retryPolicy 分类：配置类错误立刻失败并给出可执行建议；
+ * 只有限流/5xx/网络抖动/JSON 没解析出来才退避重试；超时最多再试 1 次。
  */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export async function completeJson({ system = '', user = '', attempts } = {}) {
-  const max = attempts ?? config.llm.maxRetries;
+  const hardCap = attempts ?? config.llm.maxRetries;
   let lastErr;
-  for (let i = 1; i <= max; i += 1) {
+  let repairSuffix = '';
+
+  for (let i = 1; i <= hardCap; i += 1) {
     try {
-      const raw = await complete({ system, user });
+      const raw = await complete({ system, user: user + repairSuffix, attempt: i });
       return loadJsonLike(raw);
     } catch (err) {
       lastErr = err;
-      logger.warn('llm.json.parse.retry', { attempt: i, reason: err.message });
+      const p = classifyError(err);
+
+      if (!p.retryable) {
+        // 配置类错误：立刻抛，别拿额度去试
+        logger.warn('llm.giveup', { attempt: i, kind: p.kind, reason: String(err.message).slice(0, 120) });
+        throw upstreamError(`${p.hint}（原始错误：${err.message}）`, { kind: p.kind, retryable: false });
+      }
+      if (i >= p.maxAttempts) {
+        logger.warn('llm.giveup', { attempt: i, kind: p.kind, reason: String(err.message).slice(0, 120) });
+        throw upstreamError(`${p.hint}（已尝试 ${i} 次，最后一次：${err.message}）`, { kind: p.kind, retryable: true });
+      }
+
+      // 解析失败时下一轮追加"只输出 JSON"的提示——这一条能显著提高二次命中
+      if (p.kind === ERROR_KIND.PARSE) repairSuffix = JSON_REPAIR_HINT;
+
+      const wait = backoffMs(i, p.kind);
+      logger.warn('llm.retry', { attempt: i, kind: p.kind, waitMs: wait, reason: String(err.message).slice(0, 80) });
+      await sleep(wait);
     }
   }
-  throw upstreamError(`模型输出无法解析为 JSON（已重试 ${max} 次）：${lastErr?.message}`);
+  throw upstreamError(`模型输出无法解析为 JSON（已重试 ${hardCap} 次）：${lastErr?.message}`);
 }
 
 export { normalizeSettings, applyPreset, PRESETS, chatComplete, testConnection } from './llmClient.js';

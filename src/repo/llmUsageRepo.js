@@ -61,22 +61,36 @@ const bump = (bucket, key, entry) => {
 
 /**
  * 记一次调用。
- * @param entry { task, model, ms, ok, promptTokens, completionTokens, error }
+ *
+ * attempt 用来算「命中率」：只有第 1 次尝试就成功，才算一次命中。
+ * 之前的账本只记成功/失败，看不出「一次就过」和「重试 3 次才过」的区别，
+ * 而这恰恰是额度浪费的主要来源。
+ *
+ * @param entry { task, model, ms, ok, attempt, promptTokens, completionTokens, error }
  */
 export function record(entry) {
   const data = read();
+  const attempt = Math.max(1, Math.round(entry.attempt ?? 1));
   const e = {
     task: entry.task || 'other',
     model: entry.model || '',
     ms: Math.round(entry.ms ?? 0),
     ok: Boolean(entry.ok),
+    attempt,
     promptTokens: Math.max(0, Math.round(entry.promptTokens ?? 0)),
     completionTokens: Math.max(0, Math.round(entry.completionTokens ?? 0)),
   };
   if (!e.ok && entry.error) e.error = String(entry.error).slice(0, 160);
+  // 历史文件没有这两个字段，读的时候补 0，避免老数据算出 NaN
+  if (!Number.isFinite(data.totals.attempt1Calls)) data.totals.attempt1Calls = 0;
+  if (!Number.isFinite(data.totals.attempt1Ok)) data.totals.attempt1Ok = 0;
 
   data.totals.calls += 1;
   if (e.ok) data.totals.ok += 1; else data.totals.failed += 1;
+  if (attempt === 1) {
+    data.totals.attempt1Calls += 1;
+    if (e.ok) data.totals.attempt1Ok += 1;
+  }
   data.totals.promptTokens += e.promptTokens;
   data.totals.completionTokens += e.completionTokens;
   data.totals.ms += e.ms;
@@ -109,6 +123,10 @@ export function summary() {
     totals: {
       ...t,
       successRate: t.calls ? Math.round((t.ok / t.calls) * 100) : 100,
+      // 命中率 = 第 1 次尝试就成功的比例。与 successRate 分开看：
+      // 成功率 90% 但命中率 60%，说明一半的成功靠重试堆出来，额度在漏。
+      hitRate: t.attempt1Calls ? Math.round(((t.attempt1Ok ?? 0) / t.attempt1Calls) * 100) : null,
+      retried: t.calls - (t.attempt1Calls ?? 0),
       avgMs: t.calls ? Math.round(t.ms / t.calls) : 0,
       tokens: t.promptTokens + t.completionTokens,
     },

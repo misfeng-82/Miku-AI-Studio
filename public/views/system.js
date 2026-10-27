@@ -73,12 +73,18 @@ export function viewEngine() {
     <div class="card-head"><div><h2>模型用量</h2><div class="sub">只记元数据（场景 / 模型 / 耗时 / token），不记 prompt 与返回内容</div></div>
       <div class="actions">${u ? `<button class="btn" data-act="resetusage">${ICONS.refresh}清零</button>` : ''}${busyBtn('usage', u ? '刷新用量' : '查看用量', 'chart')}</div></div>
     ${!u ? `<div class="notice notice-info">${ICONS.chart}<div>点「查看用量」看接上模型之后的真实消耗：调了几次、花了多少 token、每步平均多久、有没有失败。数据只留在本机 <span class="mono">data/llm-usage.json</span>。</div></div>` : `
-    ${statStrip([
-      { label: '调用次数', value: u.totals.calls, cls: 'hl' },
-      { label: '成功率', value: `${u.totals.successRate}%`, cls: u.totals.successRate >= 90 ? '' : 'hl' },
-      { label: '总 Token', value: u.totals.tokens.toLocaleString('en-US') },
-      { label: '平均耗时', value: `${(u.totals.avgMs / 1000).toFixed(1)}s` },
-    ])}
+      ${statStrip([
+        { label: '调用次数', value: u.totals.calls, cls: 'hl' },
+        {
+          label: '命中率',
+          value: u.totals.hitRate == null ? '—' : `${u.totals.hitRate}%`,
+          cls: u.totals.hitRate == null || u.totals.hitRate >= 90 ? '' : 'hl',
+        },
+        { label: '成功率', value: `${u.totals.successRate}%`, cls: u.totals.successRate >= 90 ? '' : 'warn' },
+        { label: '重试次数', value: u.totals.retried ?? 0, cls: (u.totals.retried ?? 0) > 0 ? 'warn' : '' },
+        { label: '总 Token', value: u.totals.tokens.toLocaleString('en-US') },
+        { label: '平均耗时', value: `${(u.totals.avgMs / 1000).toFixed(1)}s` },
+      ])}
     ${u.byTask.length ? `<div style="margin-top:16px"><div class="fl" style="margin-bottom:8px">按场景</div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>场景</th><th>调用</th><th>Token</th><th>平均耗时</th><th>失败</th></tr></thead><tbody>
       ${u.byTask.map((r) => `<tr><td class="row-title">${esc(taskName(r.key))}</td><td class="mono">${r.calls}</td><td class="mono">${r.tokens.toLocaleString('en-US')}</td><td class="mono">${(r.avgMs / 1000).toFixed(1)}s</td><td class="mono">${r.failed || '—'}</td></tr>`).join('')}
