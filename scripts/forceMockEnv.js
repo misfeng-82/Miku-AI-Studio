@@ -12,6 +12,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// 自测必须离线：USE_MOCK 的默认值已改为 0（产品默认真实模式），这里显式兜住
+process.env.USE_MOCK ??= '1';
+
 if (!process.env.DATA_DIR) {
   process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'comic-drama-selftest-'));
 }

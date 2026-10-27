@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { upstreamError } from '../errors.js';
+import { upstreamError, conflict } from '../errors.js';
 import { loadJsonLike } from './jsonRepair.js';
 import { mockComplete } from './mockData.js';
 import { classifyError, backoffMs, ERROR_KIND, JSON_REPAIR_HINT } from './retryPolicy.js';
@@ -18,9 +18,15 @@ export function effectiveConfig() {
   if (runtime?.enabled && runtime.apiKey && runtime.baseUrl) {
     return { cfg: normalizeSettings(runtime), source: 'runtime' };
   }
-  if (config.llm.useMock || !config.llm.apiKey || !config.llm.baseUrl) {
-    return { cfg: null, source: 'mock' };
-  }
+    // 只有显式打开 USE_MOCK 才走样本引擎（自测 / 离线开发用）
+    if (config.llm.useMock) {
+      return { cfg: null, source: 'mock' };
+    }
+    if (!config.llm.apiKey || !config.llm.baseUrl) {
+      // 产品默认真实模式：没配置就是「未接入」。
+      // 绝不静默降级成样本稿——那会让用户以为模型写出来了，实际是内置模板。
+      return { cfg: null, source: 'unconfigured' };
+    }
   return {
     cfg: normalizeSettings({
       enabled: true,
@@ -51,8 +57,16 @@ export function status() {
 }
 
 export async function complete({ system = '', user = '', signal, attempt = 1 } = {}) {
-  const { cfg, source } = effectiveConfig();
-  if (source === 'mock' || !cfg) {
+    const { cfg, source } = effectiveConfig();
+    if (source === 'unconfigured') {
+      // 用 CONFLICT(409) 而不是 UPSTREAM(502)：这是「本方还没配置」，
+      // 不是服务商故障。502 会被重试策略当成 5xx 反复重试，还误导用户。
+      throw conflict(
+        '还没有接入模型：点右上角「接 API」填 Key 与 Base URL 才能生成。'
+        + '真实生成必须接模型，本项目不返回兜底样本稿',
+      );
+    }
+    if (source === 'mock' || !cfg) {
     logger.debug('llm.mock', { chars: user.length });
     return mockComplete({ system, user });
   }
@@ -111,8 +125,11 @@ export async function completeJson({ system = '', user = '', attempts } = {}) {
       const p = classifyError(err);
 
       if (!p.retryable) {
-        // 配置类错误：立刻抛，别拿额度去试
+        // 配置类错误：立刻抛，别拿额度去试。
+        // 如果下层已经给出了明确的业务错误码（如 409 未接入 / 400 参数），
+        // 原样上抛——再包一层会把文案和状态码都搞脏。
         logger.warn('llm.giveup', { attempt: i, kind: p.kind, reason: String(err.message).slice(0, 120) });
+        if (err?.code && err.code !== 'UPSTREAM') throw err;
         throw upstreamError(`${p.hint}（原始错误：${err.message}）`, { kind: p.kind, retryable: false });
       }
       if (i >= p.maxAttempts) {

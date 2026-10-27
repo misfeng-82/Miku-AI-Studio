@@ -43,7 +43,7 @@ export const config = Object.freeze({
 
   // LLM 层：默认强制 mock，避免任何意外产生费用
   llm: Object.freeze({
-    useMock: str('USE_MOCK', '1', ['0', '1']) === '1',
+    useMock: str('USE_MOCK', '0', ['0', '1']) === '1',
     baseUrl: str('LLM_BASE_URL', ''),
     apiKey: str('LLM_API_KEY', ''),
     model: str('LLM_MODEL', 'mock-1'),
