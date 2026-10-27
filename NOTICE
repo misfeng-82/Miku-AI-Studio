@@ -1,0 +1,76 @@
+Miku AI 创作平台（MIKU AI STUDIO）
+Copyright 2026 Miku AI 创作平台贡献者
+
+本产品包含从下列第三方作品衍生的部分。以下署名按 Apache License 2.0 第 4(d) 条要求保留。
+
+===============================================================================
+1. shuohao-skills
+===============================================================================
+
+上游仓库：https://github.com/eternityspring/shuohao-skills
+
+--- 以下为上游 NOTICE 原文（原样保留）---
+
+shuohao-skills
+Copyright 2026 烁皓
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+The bundled sample story `skills/storycast/examples/渡口.txt` is an original
+work written for this project and is covered by the same license.
+
+--- 上游 NOTICE 原文结束 ---
+
+--- 本项目的修改声明 ---
+
+修改日期：2026-10（本项目自 2026 年起持续修改）
+
+被修改的文件：
+
+  src/engine/outline.mjs
+    来源：skills/novel-outline/scripts/
+    改动：适配本项目的调用方式与导出接口；门禁阈值与检查项逻辑沿用上游。
+
+  src/engine/script.mjs
+    来源：skills/novel-script/scripts/
+    改动：适配本项目的调用方式与导出接口；新增 epNo() 集号取值兜底
+          （上游直接插值 ep，缺失时会输出「第 undefined 集」）；
+          门禁阈值与检查项逻辑沿用上游。
+
+  scripts/fixtures/渡口-outline.json
+  scripts/fixtures/渡口-script.json
+    来源：由上游 skills/storycast/examples/渡口.txt
+          （上游声明：original work，受同一许可覆盖）派生的示例产物
+    改动：仅作为本项目自动化测试的固定夹具使用。
+
+上述文件继续适用 Apache License 2.0，许可证全文见 LICENSE-APACHE-2.0。
+本项目原创部分适用 MIT，详见 LICENSE。
+
+===============================================================================
+2. 仅借鉴设计、未包含代码的项目
+===============================================================================
+
+以下项目**未包含任何代码或文本**，仅在设计思路层面参考，故不构成衍生作品，
+此处列出以保持来源透明：
+
+  zenstory-ai/drama-skills (MIT)                — 可拍摄性原则
+  honolulu0/llm-script-factory (MIT)            — 六阶段流水线结构
+  Forget-C/Jellyfish                            — 三态分离、五级降级 JSON 解析
+  waooAI/waoowaoo                               — 参考图抽象、场景保真
+  0xsline/short-drama (MIT)                     — 合规清单维度、商业化节奏设计
+  geegl/directorskills (MIT)                    — skill 的 R/I/A/E/B 组织方式
+  mengxiujie/ManjuForge (MIT-0)                 — 多记忆文件一致性检查思路
+
+完整清单与许可证核实情况见 THIRD-PARTY.md。
