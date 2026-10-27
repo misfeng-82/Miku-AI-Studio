@@ -1,0 +1,22 @@
+# 统一换行与文本判定，避免 Windows 本地提交把 CRLF 带进 Linux 运行环境
+#
+# 为什么需要：这个项目在 Windows 上开发，但部署在 Render 的 Linux 容器里。
+# 若 .js 带 CRLF，Node 能跑（不致命），但 diff 会整文件变化、shell 脚本会直接失败。
+# 显式声明 eol=lf 让仓库内容与平台无关。
+
+* text=auto eol=lf
+
+# Windows 批处理必须保持 CRLF，否则 cmd 解析异常
+*.bat text eol=crlf
+
+# 二进制：Git 不要做任何换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+
+# 锁文件与生成物：diff 噪音大，标记为不参与语言统计
+package-lock.json linguist-generated=true

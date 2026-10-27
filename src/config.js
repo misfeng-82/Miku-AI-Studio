@@ -64,6 +64,17 @@ export const config = Object.freeze({
     retryBackoffMs: num('TASK_RETRY_BACKOFF_MS', 500, 0, 60000),
   }),
 
+  // 访问口令：留空 = 不启用门禁（本机开发与自动化测试的默认状态）。
+  // 部署到公网必须设置，否则任何拿到链接的人都能改设置、删作品。
+  accessToken: str('ACCESS_TOKEN', ''),
+
+  // 限流：默认 300 次/分钟/IP。登录端点单独用更严的阈值防暴力猜口令。
+  rateLimit: Object.freeze({
+    windowMs: num('RATE_LIMIT_WINDOW_MS', 60000, 1000, 3600000),
+    max: num('RATE_LIMIT_MAX', 300, 1, 1000000),
+    authMax: num('RATE_LIMIT_AUTH_MAX', 10, 1, 10000),
+  }),
+
   corsOrigins: str('CORS_ORIGINS', `http://127.0.0.1:${port},http://localhost:${port}`)
     .split(',')
     .map((s) => s.trim())

@@ -5,6 +5,8 @@ import { Router, sendJson, sendText } from './http/router.js';
 import {
   withRequestId, withSecurity, withCors, readJsonBody, serveStatic, errorHandler,
 } from './http/middleware.js';
+import { accessGate, handleAuth } from './http/auth.js';
+import { withRateLimit } from './http/ratelimit.js';
 import { api } from './routes/api.js';
 import { notFound } from './errors.js';
 
@@ -31,6 +33,23 @@ export function createApp() {
       const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
       req.query = Object.fromEntries(url.searchParams.entries());
       req.app = { config };
+
+      // 访问门禁：配置了 ACCESS_TOKEN 才生效，否则整段是空操作。
+      // 放在静态资源之前，未授权访问连页面都拿不到（/health /ready 在内部放行）。
+      if (accessGate(req, res, url.pathname)) return;
+
+      // 登录端点单独走更严的限流，防暴力猜口令
+      if (url.pathname === '/api/auth' && req.method === 'POST') {
+        if (withRateLimit(req, res, { max: config.rateLimit.authMax, namespace: 'auth' })) return;
+        req.body = await readJsonBody(req);
+        const out = await handleAuth(req, res);
+        if (out !== undefined && !res.writableEnded) sendJson(res, 200, out);
+        return;
+      }
+
+      // 全局限流。健康检查不占配额——否则探活自己把额度吃掉，监控会误判成宕机。
+      const isProbe = url.pathname === '/health' || url.pathname === '/ready';
+      if (!isProbe && withRateLimit(req, res)) return;
 
       // 健康检查：给容器与监控系统用，不进业务路由
       if (url.pathname === '/health') {

@@ -291,8 +291,8 @@ await t('GET /api/settings 不下发明文 Key', async () => {
 });
 
 await t('PUT /api/settings 部分更新不清空已存 Key（关键回归）', async () => {
-  // 先写入一个假 Key
-  const set = await call('PUT', '/api/settings', { apiKey: 'sk-test-fake-key-123456', enabled: false });
+  // 先写入一个假 Key（夹具，不是真实密钥：末尾 secretscan-allow 显式豁免）
+  const set = await call('PUT', '/api/settings', { apiKey: 'sk-test-fake-key-123456', enabled: false }); // secretscan-allow 测试夹具，非真实密钥
   is(set, 200, '写入 Key');
   // 再只改推理等级，不带 apiKey 字段
   const upd = await call('PUT', '/api/settings', { reasoning: 'low' });
@@ -311,6 +311,16 @@ await t('PUT /api/settings 不回存掩码串为真实 Key', async () => {
   const after = await call('GET', '/api/settings');
   eq(after.data.settings.apiKey, masked, '掩码回填后应保持不变');
   return '掩码未被当作真实 Key 覆盖';
+});
+
+// 收尾：上面几条用例会往 settings 里写假 Key。不清理的话，跑完测试的设置里
+// 就留着一条假 Key（界面上会显示一串掩码，用户以为配过模型），属于测试残留。
+await t('收尾：清除测试写入的假 Key', async () => {
+  const r = await call('PUT', '/api/settings', { apiKey: '-', enabled: false });
+  is(r, 200, '清空 Key');
+  const after = await call('GET', '/api/settings');
+  eq(after.data.settings.apiKey ?? '', '', 'Key 应已被清空');
+  return '设置已恢复为空口令状态';
 });
 
 await t('PUT /api/settings 传 "-" 可显式清空已存 Key', async () => {

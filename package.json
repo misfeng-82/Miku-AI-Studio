@@ -12,7 +12,9 @@
     "featuretest": "node scripts/featuretest.mjs",
     "uicheck": "node scripts/uicheck.mjs",
     "rendercheck": "node scripts/rendercheck.mjs",
-    "enginecheck": "node scripts/enginecheck.mjs"
+    "enginecheck": "node scripts/enginecheck.mjs",
+    "secretscan": "node scripts/secretscan.mjs",
+    "verify:offline": "node scripts/selftest.mjs && node scripts/uicheck.mjs && node scripts/enginecheck.mjs && node scripts/secretscan.mjs"
   },
   "engines": {
     "node": ">=18"

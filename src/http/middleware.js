@@ -27,6 +27,11 @@ export function withSecurity(req, res) {
   res.setHeader('referrer-policy', 'no-referrer');
   res.setHeader('x-xss-protection', '0');
   res.setHeader('cross-origin-opener-policy', 'same-origin');
+  // HSTS 只在生产下发：本地是 http，发了会让浏览器强行跳 https，把开发环境搞坏。
+  // 云平台（Render 等）由反向代理终止 TLS，对客户端来说确实是 https，此时该发。
+  if (isProduction()) {
+    res.setHeader('strict-transport-security', 'max-age=15552000; includeSubDomains');
+  }
 }
 
 export function withCors(req, res) {
