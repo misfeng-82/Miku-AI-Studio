@@ -7,7 +7,7 @@
  * 流程与「先预览、确认，再生产」一致：每一步的产物都落在这里给人看，
  * 人点了下一步才继续；组装出来的整稿和「载入剧本」走同一条下游。
  */
-import { curInput, setCurInput, clearOwnResult,  state, api, esc, ICONS, ctx, busyBtn, pageHead, toast, download, gateList, isLiveLLM, llmLabel, save, statStrip, render } from '../core.js';
+import { curInput, setCurInput, clearOwnResult,  state, api, esc, ICONS, ctx, busyBtn, pageHead, toast, download, gateList, isLiveLLM, llmLabel, save, statStrip, render, llmModeLabel } from '../core.js';
 import { parseScriptText, parseScriptJson, statsOf, describeImport } from '../parseScriptText.js';
 
 /* ================= 载入剧本 ================= */
@@ -258,7 +258,7 @@ function genStepConcept() {
     </div>
     <div class="actions" style="margin-top:10px">
       ${busyBtn('genStory', '生成梗概与人设', 'spark')}
-      <span class="muted" style="font-size:10.5px">一次模型调用；没接 API 时走本地样本引擎，照样能跑完整条链路</span>
+      <span class="muted" style="font-size:10.5px">一次模型调用；未接入模型时会明确报错并引导你配置，不返回样本稿</span>
     </div>
   </div>`;
 }
@@ -439,8 +439,8 @@ function genWhereToGo() {
 
 export function viewGen() {
   const live = isLiveLLM();
-  const tags = `<span class="tag purple">四段式</span><span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '本地样本引擎'}</span><span class="tag blue">引擎门禁</span>`;
-  const notice = live ? '' : `<div class="notice notice-warn">${ICONS.alert}<div>还没接模型 API：现在跑的是本地样本引擎，链路能通但内容是样本。想出真稿先点右上角「接 API」。</div></div>`;
+  const tags = `<span class="tag purple">四段式</span><span class="tag ${live ? 'teal' : 'amber'}">${esc(llmModeLabel())}</span><span class="tag blue">引擎门禁</span>`;
+  const notice = live ? '' : `<div class="notice notice-warn">${ICONS.alert}<div>还没接入模型：生成、评审、逐集精修都需要真实模型。点右上角「接 API」填 Key 与 Base URL 后即可使用（本项目不返回样本稿）。</div></div>`;
   return pageHead(
     '剧本创作',
     'AI 剧本生成',

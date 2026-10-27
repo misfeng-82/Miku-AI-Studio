@@ -302,7 +302,17 @@ export function setRender(fn) { render = fn; }
  * 早先前端写死判 `=== 'live'`，而后端从来没返回过 'live'——
  * 结果就是接了 API 也永远显示「本地引擎」。除 mock 之外都算已接入。
  */
-export const isLiveLLM = () => (state.meta?.llm?.mode ?? state.meta?.modes?.llm ?? 'mock') !== 'mock';
+export const llmMode = () => state.meta?.llm?.mode ?? state.meta?.modes?.llm ?? 'unconfigured';
+// 只有真正接上模型才算 live。'unconfigured'（未配置）和 'mock'（测试）都不是。
+// 之前的写法是 mode !== 'mock'，会把「未接入」误判成「真模型」。
+export const isLiveLLM = () => llmMode() === 'live';
+/** 统一的模型状态标签：真模型 / 样本引擎（仅测试）/ 未接入模型 */
+export const llmModeLabel = () => {
+  const m = llmMode();
+  if (m === 'live') return `真模型 · ${llmLabel() || '已接入'}`;
+  if (m === 'mock') return '样本引擎（仅测试）';
+  return '未接入模型';
+};
 /** 已接入模型的展示名，未接入给空串 */
 export const llmLabel = () => state.meta?.llm?.model ?? '';
 /** 当前推理等级的中文短名（DeepSeek 等思考模型才有意义） */

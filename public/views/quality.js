@@ -1,5 +1,5 @@
 /* 视图域：质量把控 —— 评估 / 优化 / 统计报表 */
-import { curInput, setCurInput,  state, api, esc, ICONS, ctx, needScript, busyBtn, pageHead, scoreRing, gateList, statStrip, barRows, toast, fmtTime, isLiveLLM, llmLabel } from '../core.js';
+import { curInput, setCurInput,  state, api, esc, ICONS, ctx, needScript, busyBtn, pageHead, scoreRing, gateList, statStrip, barRows, toast, fmtTime, isLiveLLM, llmLabel, llmModeLabel } from '../core.js';
 // 载入剧本的入口在两页都要有：用户来到「评估/优化」才发现没剧本，不该再被赶去别的页
 import { importCard } from './script.js';
 
@@ -75,7 +75,7 @@ function checkupCard() {
 export function viewEvaluate() {
   const r = state.data.eval;
   const live = isLiveLLM();
-  const tags = `<span class="tag purple">AI 评审 + 24 门</span><span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span>`;
+  const tags = `<span class="tag purple">AI 评审 + 24 门</span><span class="tag ${live ? 'teal' : 'amber'}">${esc(llmModeLabel())}</span>`;
 
   const form = `<div class="card">
     <div class="card-head"><div><h2>AI 剧本评估</h2><div class="sub">两层：确定性 24 门（大纲 14 + 剧本 10，可复现）+ 大模型评审（懂戏），按 6:4 加权</div></div>
@@ -123,7 +123,7 @@ export function viewEvaluate() {
 export function viewOptimize() {
   const r = state.data.opt;
   const live = isLiveLLM();
-  const tags = `<span class="tag purple">确定性预修 + 逐集精修</span><span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span>`;
+  const tags = `<span class="tag purple">确定性预修 + 逐集精修</span><span class="tag ${live ? 'teal' : 'amber'}">${esc(llmModeLabel())}</span>`;
 
   const form = `<div class="card">
     <div class="card-head"><div><h2>AI 剧本优化</h2><div class="sub">两刀：机器先改它一定改得对的（拆长句 / 补动作 / 回补时长）；再把最该改的几集逐集交给模型重写，每集都过质量门，不过就带诊断再修一轮</div></div>
@@ -140,7 +140,7 @@ export function viewOptimize() {
 
   const delta = r.after.score - r.before.score;
   const okCount = (r.rewritten ?? []).filter((x) => x.ok).length;
-  const modeText = r.llm?.mode === 'mock' ? '样本引擎' : `真模型 · ${esc(r.llm?.model || '已接入')}`;
+  const modeText = r.llm?.mode === 'mock' ? '样本引擎（测试）' : `真模型 · ${esc(r.llm?.model || '已接入')}`;
   return pageHead('质量把控', '剧本优化', desc, tags) + importCard({ previewOpen: false }) + form + `
   <div class="card">
     <div class="card-head"><div><h2>优化前后对比</h2><div class="sub">${modeText} · 重写成功 ${okCount} 集 · 确定性修 ${r.changed ?? 0} 处${r.skipped ? ` · 本轮跳过 ${r.skipped} 集` : ''}</div></div>

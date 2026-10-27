@@ -242,6 +242,8 @@ $('#amPreset').addEventListener('change', (e) => {
 
 /* ================= 事件委托 ================= */
 const ACTIONS = {
+  // 首页/引导卡里点「去接入模型」直接打开配置弹窗
+  openapi: openApiModal,
   resetusage: async () => {
     if (!confirm('清零本机的模型用量记录？只删统计数字，不动你的配置与项目。')) return;
     await api.llmUsageReset();

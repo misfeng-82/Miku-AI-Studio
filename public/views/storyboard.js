@@ -5,8 +5,7 @@
  */
 import { curInput, 
   state, api, esc, ICONS, ctx, busyBtn, pageHead, statStrip, gateList, toast,
-  copyText, download, isLiveLLM, llmLabel,
-} from '../core.js';
+  copyText, download, isLiveLLM, llmLabel, llmModeLabel } from '../core.js';
 import { importCard } from './script.js';
 
 const SIZE_CN = {
@@ -89,7 +88,7 @@ function splitForm() {
 
   return `<div class="card">
     <div class="card-head"><div><h2>分集拆解</h2><div class="sub">导入的剧本已自动分集；每集单独拆成 15 秒分镜段，每段再分 3–6 个子镜头，并给每段一条时间轴提示词。12 道门确定性校验，不过带诊断重修一轮</div></div>
-      <span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span></div>
+      <span class="tag ${live ? 'teal' : 'amber'}">${esc(llmModeLabel())}</span></div>
     ${autoSplit ? `<div class="notice notice-info">${ICONS.alert}<div>没检测到「第 N 集」标记，已按每 ${SCENES_PER_EP} 场自动分成 <b>${list.length}</b> 集（只影响本页视图，不改你的剧本文件）</div></div>` : ''}
     <label class="field" style="max-width:220px;margin-bottom:12px"><span class="fl">画幅</span>
       <select class="editable" data-cfg="aspect">
@@ -134,7 +133,7 @@ function resultCard(d) {
   const segs = d.segments ?? [];
   return `<div class="card">
     <div class="card-head"><div><h2>第 ${d.ep} 集 · ${d.stats.segments} 段 / ${d.stats.shots} 镜</h2>
-      <div class="sub">约 ${d.stats.seconds} 秒 · ${d.stats.scenes} 场 · ${(d.llm?.mode === 'mock' ? '样本引擎' : `真模型 ${esc(d.llm?.model || '')}`)}${d.rounds > 1 ? ` · 重修 ${d.rounds - 1} 轮` : ''}${d.cached ? ' · 缓存命中' : ''}</div></div>
+      <div class="sub">约 ${d.stats.seconds} 秒 · ${d.stats.scenes} 场 · ${(d.llm?.mode === 'mock' ? '样本引擎（测试）' : `真模型 ${esc(d.llm?.model || '')}`)}${d.rounds > 1 ? ` · 重修 ${d.rounds - 1} 轮` : ''}${d.cached ? ' · 缓存命中' : ''}</div></div>
       <div class="chip-row">
         <span class="tag ${d.passed ? 'teal' : 'amber'}">门 ${(d.gates ?? []).filter((g) => g.ok).length}/${(d.gates ?? []).length}</span>
         ${d.degraded ? '<span class="tag rose">规则切段（模型未拆成）</span>' : ''}
@@ -179,7 +178,7 @@ function resultCard(d) {
 
 export function viewStoryboard() {
   const live = isLiveLLM();
-  const tags = `<span class="tag purple">15 秒 × 子镜头</span><span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span><span class="tag blue">12 道结构门</span>`;
+  const tags = `<span class="tag purple">15 秒 × 子镜头</span><span class="tag ${live ? 'teal' : 'amber'}">${esc(llmModeLabel())}</span><span class="tag blue">12 道结构门</span>`;
   return pageHead(
     '剧本创作', '剧本转分镜',
     '把一集剧本拆成 15 秒分镜段，段内再分 3–6 个子镜头；每段给一条时间轴提示词，可直接生成 15 秒视频。',

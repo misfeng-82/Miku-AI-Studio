@@ -21,8 +21,42 @@ function homeSection({ view, name, desc }) {
   </div>`;
 }
 
+  const llmModeSafe = () => state.meta?.llm?.mode ?? state.meta?.modes?.llm ?? 'unconfigured';
+const llmModeLabelSafe = () => (isLiveLLM() ? `真模型 · ${llmLabel() || '已接入'}` : llmModeSafe() === 'mock' ? '样本引擎（仅测试）' : '未接入模型');
+
+/**
+ * 未接入模型时的首页引导。
+ *
+ * 为什么放首页顶部而不是只在右上角：本项目以真实模型为前提，
+ * 没配 Key 时生成/评审/精修三处都直接报错。把入口藏在角落，
+ * 新用户第一件事就是撞墙——必须把「① 接入模型」提到主路径上。
+ */
+function llmOnboarding() {
+  if (isLiveLLM()) {
+    return `<div class="card card-quiet">
+      <div class="card-head"><div><h2>模型已就绪</h2><div class="sub">当前走真模型生成；配额与失败详情见「引擎与关于 → 模型用量」</div></div>
+        <span class="tag teal">${esc(llmModeLabelSafe())}</span></div>
+    </div>`;
+  }
+  if (llmModeSafe() === 'mock') {
+    return `<div class="card card-quiet">
+      <div class="card-head"><div><h2>当前是测试形态</h2><div class="sub">用 USE_MOCK=1 启动，输出为内置样本稿。要真实创作请去掉该变量并接入模型。</div></div>
+        <span class="tag amber">样本引擎（仅测试）</span></div>
+    </div>`;
+  }
+  return `<div class="card" style="border-color:rgba(59,110,246,.35)">
+    <div class="card-head"><div><h2>① 先接入模型</h2><div class="sub">生成、评审、逐集精修都必须调用真实模型。未接入时这些功能会明确报错，<b>不会返回兜底样本稿</b></div></div>
+      <div class="actions"><button class="btn btn-primary" data-act="openapi">${ICONS.cpu}去接入模型</button></div></div>
+    <div class="grid-2" style="margin-top:10px;gap:10px">
+      <div class="card card-tight"><div style="font-size:12px"><b>支持什么</b></div><div class="muted" style="font-size:11px;margin-top:4px">任何 OpenAI 兼容网关：DeepSeek / 通义 / Kimi / 智谱 / 本地 Ollama</div></div>
+      <div class="card card-tight"><div style="font-size:12px"><b>② 配好之后</b></div><div class="muted" style="font-size:11px;margin-top:4px">去「AI 剧本生成」写一部，或「载入 / 转换剧本」导入你自己的</div></div>
+    </div>
+    <div class="muted" style="font-size:10.5px;margin-top:10px">Key 只存本机 <span class="mono">data/settings.json</span>，不进浏览器、不上传。不接模型也能用：24 道质量门、分镜规则切段、台词本、报表、格式转换全部离线可用。</div>
+  </div>`;
+}
+
 export function viewHome() {
-  const tags = `<span class="tag purple">${state.meta?.gates ? state.meta.gates.outline + state.meta.gates.script : 24} 道质量门</span><span class="tag teal">零依赖离线可用</span>`;
+    const tags = `<span class="tag purple">${state.meta?.gates ? state.meta.gates.outline + state.meta.gates.script : 24} 道质量门</span><span class="tag teal">模型写 · 代码验收</span>`;
 
   const fnCards = [
     { id: 'hot', name: '爆款榜单', desc: '抓取 + 结构分析 + 写作建议', icon: 'radar', group: '爆款情报' },
@@ -36,7 +70,7 @@ export function viewHome() {
   ];
 
   return pageHead('首页', 'Miku AI创作平台', '19 个彼此独立的创作工具，每个自带输入、独立跑完整闭环。要用同一份剧本，各工具各自载入即可。', tags)
-  + HOME_SECTIONS.map(homeSection).join('') + `
+  + llmOnboarding() + HOME_SECTIONS.map(homeSection).join('') + `
   <div class="card">
     <div class="card-head"><div><h2>功能入口</h2><div class="sub">${fnCards.length} 个核心功能，左侧还有更多</div></div></div>
     <div class="grid-auto">${fnCards.map((f) => `<button class="card card-tight" data-goto="${f.id}" style="text-align:left;display:flex;flex-direction:column;gap:8px;cursor:pointer">
