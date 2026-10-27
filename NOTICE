@@ -1,0 +1,29 @@
+Miku AI创作平台
+Copyright 2026 misfeng-82
+
+本产品包含由 eternityspring 开发的 shuohao-skills 项目之修改版本。
+Copyright 2026 烁皓
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+以下文件源自 shuohao-skills 项目（Apache-2.0），本项目在其基础上做了修改：
+- src/engine/outline.mjs
+- src/engine/script.mjs
+- scripts/fixtures/渡口-outline.json
+- scripts/fixtures/渡口-script.json
+
+修改日期：2026-10-22
+修改内容：适配本项目数据结构与引擎门禁
+
+完整许可文本见 LICENSE-APACHE-2.0 文件。
