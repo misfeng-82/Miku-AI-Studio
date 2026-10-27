@@ -140,7 +140,7 @@ export const state = {
     shotEp: 1,
     fmt: 'short-drama', polishLine: '', titleGenre: '悬疑', titleKw: '', titleHook: '', titleCount: 12,
   },
-  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, library: null },
+  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null },
   busy: {},
   sel: { lineChar: null },
 };

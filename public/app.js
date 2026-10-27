@@ -304,7 +304,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-genre],[data-gfilter],[data-openurl]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -335,6 +335,9 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.titlegenre !== undefined) { state.cfg.titleGenre = btn.dataset.titlegenre; save(); render(); return; }
   // AI 剧本生成：写某一集（集数从按钮上带下来，闭包进 runner）；展开/收起某一集正文
   if (btn.dataset.genep !== undefined) { const ep = Number(btn.dataset.genep); run('genEp', () => RUNNERS.genEp(ep)); return; }
+  // 剧本转分镜：分集列表里逐集拆解 / 查看某一集结果
+  if (btn.dataset.shotep !== undefined) { const ep = Number(btn.dataset.shotep); run('shots', () => RUNNERS.shots(ep)); return; }
+  if (btn.dataset.shotview !== undefined) { state.data.shotEp = Number(btn.dataset.shotview); render(); return; }
   if (btn.dataset.genepview !== undefined) {
     const ep = Number(btn.dataset.genepview);
     const e = state.data.genflow?.eps?.[ep];

@@ -126,7 +126,7 @@ const withData = [
   ['evaluate', async () => { state.view = 'evaluate'; state.data.eval = await call('POST', '/api/evaluate', { script: SCRIPT, outline: OUTLINE }); }, '分'],
   ['optimize', async () => { state.view = 'optimize'; state.data.opt = await call('POST', '/api/optimize', { script: SCRIPT, outline: OUTLINE, limit: 1 }); }],
   ['stats', async () => { state.view = 'stats'; state.data.stats = await call('POST', '/api/stats', { script: SCRIPT, outline: OUTLINE }); }],
-  ['storyboard', async () => { state.view = 'storyboard'; state.data.shots = await call('POST', '/api/shots/split', { script: SCRIPT, outline: OUTLINE, ep: 1 }); }],
+  ['storyboard', async () => { state.view = 'storyboard'; state.data.shotsMap = { 1: await call('POST', '/api/shots/split', { script: SCRIPT, outline: OUTLINE, ep: 1 }) }; state.data.shotEp = 1; }],
   ['assets', async () => { state.view = 'assets'; state.data.assets = await call('POST', '/api/assets', { script: SCRIPT, outline: OUTLINE }); }],
   ['linebook', async () => { state.view = 'linebook'; state.data.linebook = await call('POST', '/api/linebook', { script: SCRIPT, outline: OUTLINE, includeCsv: true }); }],
   ['relations', async () => { state.view = 'relations'; state.data.relations = await call('POST', '/api/relations', { script: SCRIPT, outline: OUTLINE }); }],

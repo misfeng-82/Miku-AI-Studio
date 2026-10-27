@@ -21,31 +21,83 @@ const MOVE_CN = {
 
 const epList = () => (curInput()?.script?.episodes ?? []).map((e) => e.ep);
 
+/** 当前正在看的那一集的拆解结果 */
+const currentShots = () => (state.data.shotsMap ?? {})[Number(state.data.shotEp) || 0] ?? null;
+
+/** 没有集标记的剧本，按每集这么多场自动分（短剧一集通常 3–5 场） */
+const SCENES_PER_EP = 3;
+
+/**
+ * 本页要拆的「集」列表。
+ *
+ * 导入的剧本不一定带「第N集」标记：解析器遇到没有标记的长文会整体塞成 1 集。
+ * 这里补一层自动分集（**只作用于本工具的视图，不改用户的文件**）：
+ * 只有 1 集且场数超过阈值时才切，按每 SCENES_PER_EP 场一集。
+ */
+function episodesForSplit() {
+  const g = curInput();
+  const eps = g?.script?.episodes ?? [];
+  if (eps.length === 0) return { list: [], autoSplit: false };
+  if (eps.length > 1) return { list: eps, autoSplit: false };
+
+  const only = eps[0];
+  const scenes = only?.scenes ?? [];
+  if (scenes.length <= SCENES_PER_EP) return { list: eps, autoSplit: false };
+
+  const chunks = [];
+  for (let i = 0; i < scenes.length; i += SCENES_PER_EP) {
+    const part = scenes.slice(i, i + SCENES_PER_EP);
+    chunks.push({
+      ...only,
+      ep: chunks.length + 1,
+      scenes: part,
+      // 集尾钩子/卡点只保留在最后一段，避免每段都重复同一句
+      hook: i + SCENES_PER_EP >= scenes.length ? only.hook : '',
+      cliff: i + SCENES_PER_EP >= scenes.length ? only.cliff : '',
+    });
+  }
+  return { list: chunks, autoSplit: true };
+}
+
+/** 画幅 + 分集列表（每集单独拆） */
 function splitForm() {
   const g = curInput();
-  const eps = epList();
+  const { list, autoSplit } = episodesForSplit();
+  const map = state.data.shotsMap ?? {};
   const live = isLiveLLM();
-  const cur = Number(state.cfg.shotEp) || eps[0] || 1;
+  const busy = Boolean(state.busy?.shots);
+  const viewing = Number(state.data.shotEp) || 0;
+
+  const rows = list.map((e) => {
+    const r = map[e.ep];
+    const scenes = e.scenes?.length ?? 0;
+    const lines = (e.scenes ?? []).reduce((n, s) => n + (s.lines?.length ?? 0), 0);
+    const okN = r ? r.gates.filter((x) => x.ok).length : 0;
+    return `<div class="card" style="margin-bottom:8px;padding:12px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <b style="min-width:44px">第${e.ep}集</b>
+        <span class="muted" style="font-size:11px">${scenes} 场 · ${lines} 句</span>
+        ${r
+          ? `<span class="tag ${r.passed ? 'teal' : 'amber'}">已拆 ${r.stats.segments} 段 · ${r.stats.shots} 镜 · 门 ${okN}/${r.gates.length}</span>`
+          : '<span class="tag outline">未拆</span>'}
+        <span style="flex:1;min-width:12px"></span>
+        ${r ? `<button class="btn btn-sm" data-shotview="${e.ep}">${viewing === e.ep ? '收起结果' : '看结果'}</button>` : ''}
+        <button class="btn btn-sm ${r ? '' : 'btn-primary'}" data-shotep="${e.ep}" ${busy || !g ? 'disabled' : ''}>${ICONS.grid}${r ? '重拆本集' : '拆解本集'}</button>
+      </div>
+    </div>`;
+  }).join('');
 
   return `<div class="card">
-    <div class="card-head"><div><h2>拆分这一集</h2><div class="sub">调模型把剧本拆成 15 秒分镜段，每段再分 3–6 个子镜头，并给每段一条时间轴提示词。一集一次调用；12 道门确定性校验，不过带诊断重修一轮</div></div>
+    <div class="card-head"><div><h2>分集拆解</h2><div class="sub">导入的剧本已自动分集；每集单独拆成 15 秒分镜段，每段再分 3–6 个子镜头，并给每段一条时间轴提示词。12 道门确定性校验，不过带诊断重修一轮</div></div>
       <span class="tag ${live ? 'teal' : 'amber'}">${live ? `真模型 · ${esc(llmLabel() || '已接入')}` : '样本引擎'}</span></div>
-    <div class="grid-2">
-      <label class="field"><span class="fl">第几集</span>
-        <select class="editable" data-cfg="shotEp" ${g ? '' : 'disabled'}>
-          ${eps.map((n) => `<option value="${n}" ${n === cur ? 'selected' : ''}>第 ${n} 集</option>`).join('') || '<option>先载入剧本</option>'}
-        </select></label>
-      <label class="field"><span class="fl">画幅</span>
-        <select class="editable" data-cfg="aspect">
-          <option value="9:16" ${state.cfg.aspect !== '16:9' ? 'selected' : ''}>9:16 竖屏</option>
-          <option value="16:9" ${state.cfg.aspect === '16:9' ? 'selected' : ''}>16:9 横屏</option>
-        </select></label>
-    </div>
-    <div class="actions" style="margin-top:12px">
-      ${g ? busyBtn('shots', '拆分这一集', 'grid') : `<button class="btn btn-primary" disabled>${ICONS.grid}拆分这一集</button>`}
-      <span class="muted" style="font-size:10.5px">一次模型调用 = 本集正文 + 大纲 + 人物编号 → 15 秒段；首次约 30–60 秒，同一集同参数再点直接命中缓存</span>
-    </div>
-    ${!g ? `<div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>还没有剧本：先在下面「载入剧本」里粘贴/上传，或去「AI 剧本生成」写一部。</div></div>` : ''}
+    ${autoSplit ? `<div class="notice notice-info">${ICONS.alert}<div>没检测到「第 N 集」标记，已按每 ${SCENES_PER_EP} 场自动分成 <b>${list.length}</b> 集（只影响本页视图，不改你的剧本文件）</div></div>` : ''}
+    <label class="field" style="max-width:220px;margin-bottom:12px"><span class="fl">画幅</span>
+      <select class="editable" data-cfg="aspect">
+        <option value="9:16" ${state.cfg.aspect !== '16:9' ? 'selected' : ''}>9:16 竖屏</option>
+        <option value="16:9" ${state.cfg.aspect === '16:9' ? 'selected' : ''}>16:9 横屏</option>
+      </select></label>
+    ${g ? rows : `<div class="empty"><div class="eicon">${ICONS.grid}</div><h3>还没有剧本</h3><p>先在下面「载入剧本」里粘贴或上传，导入后会自动分集。</p></div>`}
+    <div class="muted" style="font-size:10.5px;margin-top:10px">一次模型调用 = 本集正文 + 大纲 + 人物编号 → 15 秒段；首次约 30–60 秒，同一集同参数再点直接命中缓存</div>
   </div>`;
 }
 
@@ -132,24 +184,36 @@ export function viewStoryboard() {
     '剧本创作', '剧本转分镜',
     '把一集剧本拆成 15 秒分镜段，段内再分 3–6 个子镜头；每段给一条时间轴提示词，可直接生成 15 秒视频。',
     tags,
-  ) + importCard({ previewOpen: false }) + splitForm() + resultCard(state.data.shots);
+  ) + importCard({ previewOpen: false }) + splitForm() + resultCard(currentShots());
 }
 
-export const runners = {
-  async shots() {
-    if (!curInput()) return toast('请先载入剧本', 'warn');
-    const ep = Number(state.cfg.shotEp) || epList()[0] || 1;
-    const r = await api.splitShots(ctx({ ep, styleId: state.cfg.style || undefined, aspect: state.cfg.aspect || '9:16' }));
-    state.data.shots = r;
-    if (r.degraded) {
-      toast(`模型没拆成，已用规则切段：${r.stats.segments} 段 / ${r.stats.shots} 镜`, 'warn');
-    } else {
-      toast(`第 ${ep} 集拆好了：${r.stats.segments} 段 / ${r.stats.shots} 镜 / ${r.stats.seconds}s${r.passed ? ' · 全门通过' : ' · 有门未过'}`);
-    }
-  },
+  export const runners = {
+    /** 拆某一集：按钮带 data-shotep，app.js 分发时把集数闭包进来 */
+    async shots(ep) {
+      if (!curInput()) return toast('请先载入剧本', 'warn');
+      const { list, autoSplit } = episodesForSplit();
+      const target = Number(ep) || Number(state.data.shotEp) || list[0]?.ep || 1;
+
+      // 自动分集时，发给服务端的必须是「切好的」那份，
+      // 否则第 2 集在原始 script 里根本不存在
+      const scriptArg = autoSplit ? { ...curInput().script, episodes: list } : {};
+      const r = await api.splitShots(ctx({
+        ...scriptArg,
+        ep: target,
+        styleId: state.cfg.style || undefined,
+        aspect: state.cfg.aspect || '9:16',
+      }));
+      state.data.shotsMap = { ...(state.data.shotsMap ?? {}), [target]: r };
+      state.data.shotEp = target; // 拆完立刻展示这一集的结果
+      if (r.degraded) {
+        toast(`第 ${target} 集：模型没拆成，已用规则切段 ${r.stats.segments} 段 / ${r.stats.shots} 镜`, 'warn');
+      } else {
+        toast(`第 ${target} 集拆好了：${r.stats.segments} 段 / ${r.stats.shots} 镜 / ${r.stats.seconds}s${r.passed ? ' · 全门通过' : ' · 有门未过'}`);
+      }
+    },
 
   async shotmd() {
-    const d = state.data.shots;
+    const d = currentShots();
     if (!d?.segments?.length) return toast('先拆分一次', 'warn');
     const r = await api.shotsExport({ ep: d.ep, segments: d.segments, format: 'md', styleId: state.cfg.style || undefined });
     download(`第${d.ep}集-分镜表.md`, r.text);
@@ -157,7 +221,7 @@ export const runners = {
   },
 
   async shotjson() {
-    const d = state.data.shots;
+    const d = currentShots();
     if (!d?.segments?.length) return toast('先拆分一次', 'warn');
     const r = await api.shotsExport({ ep: d.ep, segments: d.segments, format: 'json', styleId: state.cfg.style || undefined });
     download(`第${d.ep}集-分镜.json`, r.text);
@@ -165,7 +229,7 @@ export const runners = {
   },
 
   async shotcopy() {
-    const d = state.data.shots;
+    const d = currentShots();
     if (!d?.segments?.length) return toast('先拆分一次', 'warn');
     const text = d.segments.map((s) => `【${s.id} · ${s.sec}s】\n${s.prompt}`).join('\n\n');
     copyText(text, `已复制 ${d.segments.length} 段提示词`);
