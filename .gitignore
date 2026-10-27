@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.local
+data/
+*.log
+.DS_Store
+# 临时探针目录：调试产物，不提交（早先误提交过一个文件，这里显式兜住）
+.probe/
+# 一次性排查脚本：一律不落根目录，归档到 scripts/oneoff/ 并在此兜住
+tmp_*.py
+tmp_*.mjs
+cand.json
+# ……但归档目录本身要能提交，用于追溯
+!scripts/oneoff/
+!scripts/oneoff/README.md
+scripts/oneoff/*
