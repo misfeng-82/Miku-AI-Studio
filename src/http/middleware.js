@@ -91,7 +91,9 @@ export async function serveStatic(req, res, pathname) {
     // 浏览器必然重新拉取——不用手动硬刷，也不用人工维护版本号。
     if (ext === '.html') {
       let html = buf.toString('utf8');
-      for (const asset of ['/app.js', '/styles.css']) {
+      // favicon 必须一起进这个列表：浏览器的 favicon 缓存是独立存储、极其顽固，
+      // 文件名不变就永远不重新取（Ctrl+R 也不一定管用）。加 mtime 版本号才能真正刷新。
+      for (const asset of ['/app.js', '/styles.css', '/favicon.svg']) {
         try {
           const st = await stat(resolve(join(config.publicDir, asset.slice(1))));
           html = html.split(`${asset}"`).join(`${asset}?v=${Math.floor(st.mtimeMs)}"`);
