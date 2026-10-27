@@ -1,0 +1,43 @@
+# CI：每次 push / PR 自动跑全部 6 套检查。
+# 本项目零第三方依赖（只用 Node 标准库），无需 npm install，直接以 Node 22 运行。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 四套离线检查：单测自测 / 前端接线 / 引擎冒烟 / 仓库密钥扫描
+      - name: 离线检查（自测 / 接线 / 引擎 / 密钥扫描）
+        run: |
+          node scripts/selftest.mjs
+          node scripts/uicheck.mjs
+          node scripts/enginecheck.mjs
+          node scripts/secretscan.mjs
+
+      # 起一个 mock 服务（隔离数据目录，不碰仓库），后续两套检查对着它打
+      - name: 启动服务（mock 模式 + 隔离数据目录）
+        run: |
+          USE_MOCK=1 PORT=8899 DATA_DIR="$RUNNER_TEMP/miku-data" node src/server.js &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8899/ready && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8899/ready
+
+      - name: 接口全量测试（42 端点 + 边界情况）
+        run: HOST=127.0.0.1 PORT=8899 node scripts/featuretest.mjs
+
+      - name: 页面渲染检查（18 视图 × 空态/有数据）
+        run: HOST=127.0.0.1 PORT=8899 node scripts/rendercheck.mjs
