@@ -315,12 +315,13 @@ await t('PUT /api/settings 不回存掩码串为真实 Key', async () => {
 
 // 收尾：上面几条用例会往 settings 里写假 Key。不清理的话，跑完测试的设置里
 // 就留着一条假 Key（界面上会显示一串掩码，用户以为配过模型），属于测试残留。
-await t('收尾：清除测试写入的假 Key', async () => {
-  const r = await call('PUT', '/api/settings', { apiKey: '-', enabled: false });
-  is(r, 200, '清空 Key');
+await t('DELETE /api/settings 抹除本机配置（离开即抹除）', async () => {
+  const del = await call('DELETE', '/api/settings');
+  is(del, 200, '抹除');
   const after = await call('GET', '/api/settings');
-  eq(after.data.settings.apiKey ?? '', '', 'Key 应已被清空');
-  return '设置已恢复为空口令状态';
+  eq(after.data.settings.apiKey ?? '', '', 'Key 应已被抹除');
+  eq(after.data.settings.enabled ?? false, false, 'enabled 应复位');
+  return '本机配置已抹除';
 });
 
 await t('PUT /api/settings 传 "-" 可显式清空已存 Key', async () => {

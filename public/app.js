@@ -225,6 +225,18 @@ $('#amClose').addEventListener('click', () => { $('#apiModal').hidden = true; })
 $('#apiModal').addEventListener('click', (e) => { if (e.target.id === 'apiModal') $('#apiModal').hidden = true; });
 $('#amSave').addEventListener('click', saveApiSettings);
 $('#amTest').addEventListener('click', testApiSettings);
+$('#amClear').addEventListener('click', async () => {
+  if (!confirm('确定抹除本机保存的 API 配置？\n\nKey 与 Base URL 会从 data/settings.json 中删除，不可恢复。\n之后调用模型相关功能会提示「未接入」。')) return;
+  try {
+    const r = await api.clearSettings();
+    $('#amKey').value = '';
+    $('#amBase').value = '';
+    $('#amModel').value = '';
+    $('#amEnabled').checked = false;
+    toast(r.message, r.cleared ? 'ok' : 'warn');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+});
 $('#amModels').addEventListener('click', pullModels);
 $('#amPreset').addEventListener('change', (e) => {
   // 切预设自动带出 baseUrl / model / 推理等级（用户手改过 baseUrl 的不动，免得白填）

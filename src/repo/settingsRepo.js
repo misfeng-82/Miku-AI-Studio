@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from '../config.js';
 
@@ -27,4 +27,25 @@ export function saveSettings(llm) {
   mkdirSync(dirname(FILE), { recursive: true });
   writeFileSync(FILE, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
   cache = data;
+}
+
+/** 是否已存过 LLM 配置（含 apiKey） */
+export function hasStoredSettings() {
+  const llm = getSettings();
+  return Boolean(llm?.apiKey);
+}
+
+/**
+ * 抹除本机保存的 LLM 配置。
+ * 「离开即抹除」：Key 只该活在这台机器上、这一份配置里。
+ * 主动登出 / 换人使用时调用，把 apiKey 与 baseUrl 一并从磁盘清掉。
+ */
+export function clearSettings() {
+  const data = read();
+  const had = Boolean(data?.llm?.apiKey || data?.llm?.baseUrl);
+  data.llm = {};
+  mkdirSync(dirname(FILE), { recursive: true });
+  writeFileSync(FILE, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  cache = data;
+  return had;
 }

@@ -82,6 +82,19 @@ api.put('/api/settings', async (req, res) => {
   });
 });
 
+// 抹除本机保存的 LLM 配置（「离开即抹除」）
+api.delete('/api/settings', async (req, res) => {
+  const had = settingsRepo.clearSettings();
+  logger.info('settings.cleared', { had });
+  sendJson(res, 200, {
+    ok: true,
+    cleared: had,
+    message: had
+      ? '已抹除本机保存的 API 配置（Key 与 Base URL 均已删除）'
+      : '本机没有保存过 API 配置',
+  });
+});
+
 // 测试连接：用当前保存的配置发一个最小请求
 api.post('/api/settings/test', async (req, res) => {
   const saved = settingsRepo.getSettings() ?? {};

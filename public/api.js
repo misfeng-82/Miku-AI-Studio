@@ -52,6 +52,7 @@ export const api = {
   settings: () => request('GET', '/api/settings'),
   saveSettings: (b) => request('PUT', '/api/settings', b),
   testSettings: (b) => request('POST', '/api/settings/test', b),
+  clearSettings: () => request('DELETE', '/api/settings'),
   styles: () => request('GET', '/api/styles'),
   templates: (target) => request('GET', `/api/templates${target ? `?target=${target}` : ''}`),
   fillTemplate: (id, vars) => request('POST', `/api/templates/${id}/fill`, { vars }),
