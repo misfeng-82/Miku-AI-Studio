@@ -1,0 +1,8 @@
+[Unit]
+Description=Miku 数据目录每日备份
+Documentation=file:/opt/miku/deploy/oracle/README.md
+
+[Service]
+Type=oneshot
+# 脚本由 setup.sh 写入：打包 /var/lib/miku/data 到 /var/backups/miku，保留最近 7 份
+ExecStart=/usr/local/bin/miku-backup.sh

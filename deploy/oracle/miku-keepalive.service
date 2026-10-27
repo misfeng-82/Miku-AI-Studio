@@ -1,0 +1,10 @@
+[Unit]
+Description=Miku 保活（降低被 Oracle 判定为空闲并回收的概率）
+Documentation=file:/opt/miku/deploy/oracle/README.md
+
+[Service]
+Type=oneshot
+# 脚本由 setup.sh 写入：
+#   1) 周期性访问自己的 /health（制造网络活跃）
+#   2) 一次有界 CPU 峰值（不走空转占满，避免影响正常访问）
+ExecStart=/usr/local/bin/miku-keepalive.sh

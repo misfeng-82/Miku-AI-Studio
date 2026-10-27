@@ -1,0 +1,33 @@
+# Caddyfile 模板 —— setup.sh 会把 {{SITE_ADDRESS}} 和 {{ACME_EMAIL}} 替换掉
+#
+# SITE_ADDRESS 两种形态：
+#   有域名：miku.icu          → Caddy 自动申请 Let's Encrypt 证书（HTTP-01，需 80 端口可达）
+#   没域名：1.2.3.4.sslip.io  → 同样自动拿证书，用来先跑通再买域名
+#
+# 证书要求域名解析已经指向本机公网 IP，否则签发会失败并重试。
+
+{
+	# 关掉本地管理接口：这台机器只跑一个站点，不需要 admin API
+	admin off
+	# ACME 账号邮箱（可留空；填了以后证书到期提醒会发到该邮箱）
+	email {{ACME_EMAIL}}
+}
+
+{{SITE_ADDRESS}} {
+	# 压缩：JS/CSS/JSON 体积能降 60%+
+	encode zstd gzip
+
+	# 反代到本机的 Node 服务（应用只监听 127.0.0.1，不直接对外）
+	reverse_proxy 127.0.0.1:8787 {
+		# 让应用拿到真实客户端 IP（限流按 IP 计数依赖这个头）
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	# 安全头：应用自己也会发，这里兜一层（万一代理层被绕过）
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

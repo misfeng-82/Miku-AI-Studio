@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "start:env": "node --env-file=.env src/server.js",
+    "dev:env": "node --env-file=.env --watch src/server.js",
     "selftest": "node scripts/selftest.mjs",
     "smoke": "node scripts/smoke.mjs",
     "featuretest": "node scripts/featuretest.mjs",

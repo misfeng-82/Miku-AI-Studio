@@ -1,0 +1,12 @@
+[Unit]
+Description=每天备份 Miku 数据目录（数据是唯一不可再生的资产）
+
+[Timer]
+# 凌晨低峰跑；加随机延迟避免和其他任务撞车
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=600
+# 机器关机错过时间点，开机后补跑一次
+Persistent=true
+
+[Install]
+WantedBy=timers.target
