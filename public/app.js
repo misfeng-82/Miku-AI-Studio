@@ -13,9 +13,10 @@ import * as system from './views/system.js';
 
 /* ================= 侧栏注册表（单一事实来源） ================= */
 const SIDEBAR = [
-  { group: '创作入口', items: [
-    { id: 'home', name: '首页', icon: 'home' },
-  ]},
+    { group: '创作入口', items: [
+      { id: 'home', name: '首页', icon: 'home' },
+      { id: 'model', name: '接入模型', icon: 'cpu' },
+    ]},
   { group: '爆款情报', items: [
     { id: 'hot', name: '爆款榜单', icon: 'radar' },
     { id: 'split', name: '爆款拆解', icon: 'scissors' },
@@ -52,6 +53,7 @@ const nameOf = (id) => ALL_ITEMS.find((i) => i.id === id)?.name ?? '首页';
 /* ================= PAGES 分发 ================= */
 const PAGES = {
   home: system.viewHome,
+  model: system.viewModelSetup,
   engine: system.viewEngine,
   library: system.viewLibrary,
   hot: intel.viewHot,

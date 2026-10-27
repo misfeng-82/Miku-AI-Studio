@@ -55,6 +55,52 @@ function llmOnboarding() {
   </div>`;
 }
 
+/**
+ * 模型设置页（侧栏入口）。
+ *
+ * 把「接 API」从右上角角落提升为侧栏正式功能项，
+ * 因为本项目以真实模型为前提——不接就是不能用，应该是一进应用就能看到的。
+ */
+export function viewModelSetup() {
+  const live = isLiveLLM();
+  const mode = llmModeSafe();
+  const tags = `<span class="tag ${live ? 'teal' : mode === 'mock' ? 'amber' : 'rose'}">${esc(llmModeLabelSafe())}</span>`;
+
+  const statusCard = live
+    ? `<div class="card" style="border-color:rgba(15,110,86,.3)">
+        <div class="card-head"><div><h2>✓ 已接入</h2><div class="sub">当前走真模型生成，配额与失败详情见「引擎与关于 → 模型用量」</div></div>
+          <span class="tag teal">${esc(llmModeLabelSafe())}</span></div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn" data-act="openapi">${ICONS.cpu}打开详细配置</button>
+        </div>
+      </div>`
+    : `<div class="card" style="border-color:rgba(59,110,246,.35)">
+        <div class="card-head"><div><h2>还没有接入模型</h2><div class="sub">生成、评审、逐集精修都必须调用真实模型。未接入时这些功能会明确报错，<b>不会返回兜底样本稿</b></div></div></div>
+        <div class="actions" style="margin-top:14px">
+          <button class="btn btn-primary" data-act="openapi">${ICONS.cpu}打开配置面板</button>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:10px">支持任何 OpenAI 兼容网关：DeepSeek / 通义 / Kimi / 智谱 / 本地 Ollama</div>
+      </div>`;
+
+  return pageHead('设置', '接入模型',
+    '本项目以真实模型为前提。剧本生成、模型评审、逐集精修都必须调用模型——不接就是不做，没有兜底样本稿。',
+    tags)
+    + statusCard
+    + `<div class="card card-quiet">
+        <div class="card-head"><div><h2>配置指南</h2></div></div>
+        <div class="gate-list">
+          <div class="gate gate-ok"><span class="gate-icon">1</span><span class="gate-name" style="font-weight:500">点「打开配置面板」，选一个服务预设或手动填 Base URL</span><span></span></div>
+          <div class="gate gate-ok"><span class="gate-icon">2</span><span class="gate-name" style="font-weight:500">填 API Key（Key 只存本机 data/settings.json，不上传）</span><span></span></div>
+          <div class="gate gate-ok"><span class="gate-icon">3</span><span class="gate-name" style="font-weight:500">点「测试连接」确认通了，再勾「启用」并保存</span><span></span></div>
+          <div class="gate gate-ok"><span class="gate-icon">4</span><span class="gate-name" style="font-weight:500">回到「AI 剧本生成」开始创作——标签会从「未接入」变成「真模型」</span><span></span></div>
+        </div>
+        <div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>
+          <b>离开时的安全操作</b>：如果这台电脑要给别人用，点弹窗底部的「抹除配置」——Key 与 Base URL 会从磁盘彻底删除，不可恢复。
+        </div></div>
+      </div>`;
+}
+
+/** 首页 */
 export function viewHome() {
     const tags = `<span class="tag purple">${state.meta?.gates ? state.meta.gates.outline + state.meta.gates.script : 24} 道质量门</span><span class="tag teal">模型写 · 代码验收</span>`;
 
