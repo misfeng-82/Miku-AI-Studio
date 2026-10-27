@@ -1,0 +1,27 @@
+{
+  "name": "miku-ai-studio",
+  "version": "1.0.0",
+  "description": "Miku AI创作平台：抓取爆款 -> 剧本生成 -> 剧本评估 -> 剧本优化",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "start:env": "node --env-file=.env src/server.js",
+    "dev:env": "node --env-file=.env --watch src/server.js",
+    "selftest": "node scripts/selftest.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "featuretest": "node scripts/featuretest.mjs",
+    "uicheck": "node scripts/uicheck.mjs",
+    "rendercheck": "node scripts/rendercheck.mjs",
+    "enginecheck": "node scripts/enginecheck.mjs",
+    "secretscan": "node scripts/secretscan.mjs",
+    "verify:offline": "node scripts/selftest.mjs && node scripts/uicheck.mjs && node scripts/enginecheck.mjs && node scripts/secretscan.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "licenseNote": "混合许可：本项目原创部分 MIT，src/engine/ 源自 shuohao-skills 适用 Apache-2.0。详见 LICENSE / NOTICE / THIRD-PARTY.md",
+  "dependencies": {}
+}

@@ -1,0 +1,84 @@
+# 许可证说明（本项目为分许可项目）
+
+Miku AI 创作平台（MIKU AI STUDIO）不是单一许可证项目。**不同目录适用不同许可证**，
+请在再分发或商用前分别确认。
+
+---
+
+## 一、本项目原创代码 —— MIT
+
+适用于除下述「二」所列文件之外的全部源码，包括但不限于：
+`src/app.js`、`src/config.js`、`src/errors.js`、`src/logger.js`、`src/server.js`、
+`src/routes/`、`src/services/`、`src/repo/`、`src/agent/`、`src/assets/`、`src/http/`、
+`public/`、`scripts/`（`scripts/oneoff/` 除外）。
+
+```
+MIT License
+
+Copyright (c) 2026 Miku AI 创作平台贡献者
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## 二、源自 shuohao-skills 的部分 —— Apache-2.0
+
+以下文件基于
+[`eternityspring/shuohao-skills`](https://github.com/eternityspring/shuohao-skills)
+（**Apache License 2.0，Copyright 2026 烁皓**）修改而来，**继续适用 Apache-2.0，不适用上面的 MIT**：
+
+| 文件 | 上游来源 | 改动 |
+| --- | --- | --- |
+| `src/engine/outline.mjs` | `skills/novel-outline/scripts/*` | 接入本项目的 call/导出方式，保留门禁逻辑与阈值 |
+| `src/engine/script.mjs` | `skills/novel-script/scripts/*` | 同上；另新增 `epNo()` 集号兜底 |
+| `scripts/fixtures/渡口-outline.json` | `skills/storycast/examples/渡口.txt` 派生的示例产物 | 作为测试夹具使用 |
+| `scripts/fixtures/渡口-script.json` | 同上 | 作为测试夹具使用 |
+
+Apache-2.0 全文见同目录 **`LICENSE-APACHE-2.0`**。
+上游署名与 NOTICE 见同目录 **`NOTICE`**。
+
+按 Apache-2.0 第 4 条，你再分发上述文件时须：
+
+1. 附上 Apache-2.0 许可证副本（`LICENSE-APACHE-2.0`）
+2. 保留 `NOTICE` 中的署名内容
+3. 在修改过的文件中标注「已修改」及日期（本项目已在文件头注明）
+4. 保留原始版权声明
+
+---
+
+## 三、第三方商标与数据
+
+- 「红果短剧」等平台名称、剧目名称、海报图片、播放页链接，版权归各自权利人所有。
+  本项目仅在 `src/assets/hotDramas.js` 与 `data/hot-dramas.json` 中作为**公开榜单信息的引用**使用，
+  不主张任何权利，也不代表与上述平台存在合作或授权关系。
+- 各 AI 模型服务（DeepSeek、OpenAI 兼容网关等）的调用受其各自服务条款约束。
+
+---
+
+## 四、免责
+
+本项目为创作辅助工具。**生成的剧本、分镜等内容的合规性、版权归属与可用性由使用者自行负责**，
+包括但不限于内容审核要求、平台投稿规则与改编授权。作者不对使用本项目产生的内容主张权利，
+也不承担由此产生的责任。
+
+---
+
+> 本文档为工程层面的许可整理，**不构成法律意见**。如需商用、对外发布或应对合规审查，
+> 请交由法务确认。完整的第三方来源清单见 `THIRD-PARTY.md`。
