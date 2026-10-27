@@ -34,7 +34,9 @@ async function request(method, path, body, attempt = 1) {
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
 
   if (!res.ok) {
-    const err = new Error(MESSAGES[data?.error?.code] || data?.error?.message || '操作失败');
+    // 服务端消息优先：它比通用映射更具体（如「还没有接入模型：点右上角…」）
+    // 通用映射只在服务端没给 message 时兜底
+    const err = new Error(data?.error?.message || MESSAGES[data?.error?.code] || '操作失败');
     err.code = data?.error?.code ?? 'INTERNAL';
     err.details = data?.error?.details;
     err.status = res.status;
