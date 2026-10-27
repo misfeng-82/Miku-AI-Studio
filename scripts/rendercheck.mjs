@@ -172,6 +172,33 @@ for (const key of ['home', 'engine']) {
   }
 }
 
+/* ---------- C. 增量生成的运行态（新增 UI 分支，必须单独画一次） ---------- */
+console.log('\n[C] 增量生成运行中（进度条 / 当前段高亮 / 排队按钮）');
+try {
+  state.view = 'gen';
+  const story = (await call('POST', '/api/script-gen/story', {
+    concept: '都市重生复仇：女主被夺走公司，重生回到酒会当晚', genre: '都市重生复仇', episodes: 6,
+  })).story;
+  const { outline } = await call('POST', '/api/script-gen/outline', { story });
+  const one = await call('POST', '/api/script-gen/episode', { story, outline, ep: 1 });
+  state.data.genflow = {
+    story,
+    outline,
+    eps: { 1: { text: one.text, passed: one.passed, gates: one.gates, open: true } },
+    assembled: null,
+    run: { running: true, total: outline.episodes.length, currentEp: 2, failedEp: null },
+  };
+  ok('gen（增量运行中）', renderOne('gen', '正在写第 2 集'));
+  // 失败态：应出现「可续跑」提示
+  state.data.genflow = {
+    ...state.data.genflow,
+    run: { running: false, total: outline.episodes.length, currentEp: null, failedEp: 3 },
+  };
+  ok('gen（失败可续跑）', renderOne('gen', '续跑'));
+} catch (e) {
+  bad('gen（增量运行态）', e.message);
+}
+
 // 清理本次临时造的作品（只删自己造的，不动已有数据）
 for (const id of cleanupIds) { try { await call('DELETE', `/api/projects/${id}`); } catch { /* 忽略 */ } }
 

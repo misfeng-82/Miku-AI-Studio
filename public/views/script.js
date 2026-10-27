@@ -7,7 +7,7 @@
  * 流程与「先预览、确认，再生产」一致：每一步的产物都落在这里给人看，
  * 人点了下一步才继续；组装出来的整稿和「载入剧本」走同一条下游。
  */
-import { curInput, setCurInput, clearOwnResult,  state, api, esc, ICONS, ctx, busyBtn, pageHead, toast, download, gateList, isLiveLLM, llmLabel, save, statStrip } from '../core.js';
+import { curInput, setCurInput, clearOwnResult,  state, api, esc, ICONS, ctx, busyBtn, pageHead, toast, download, gateList, isLiveLLM, llmLabel, save, statStrip, render } from '../core.js';
 import { parseScriptText, parseScriptJson, statsOf, describeImport } from '../parseScriptText.js';
 
 /* ================= 载入剧本 ================= */
@@ -312,33 +312,55 @@ function genStepOutline(f) {
   const o = f.outline;
   const eps = f.eps ?? {};
   const done = Object.keys(eps).length;
+  const total = o.episodes.length;
+  const run = f.run ?? null;
+  const running = Boolean(run?.running);
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  // 增量生成控制条：一段一集，写完立刻上屏，全部完成后自动组装
+  const runner = `<div class="card card-tight" style="margin-top:12px;padding:12px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      ${running
+        ? `<button class="btn btn-sm btn-danger" data-run="genStop">${ICONS.x}停止</button>`
+        : busyBtn('genRun', done ? (done < total ? '继续增量生成' : '重新增量生成') : '开始增量生成', 'play')}
+      <span class="tag ${done === total ? 'teal' : 'outline'}">${done} / ${total} 段</span>
+      ${running ? `<span class="tag amber">正在写第 ${run.currentEp} 集…</span>` : ''}
+      ${!running && run?.failedEp ? `<span class="tag rose">第 ${run.failedEp} 集失败，可续跑</span>` : ''}
+      <span class="muted" style="font-size:10.5px;flex:1;min-width:200px">每段 = 一集（3–5 场）。写完一段立刻出现在下面，全部完成后自动组装整稿交付</span>
+    </div>
+    <div class="bar-track"><span class="bar-fill ${done === total ? 'teal' : 'blue'}" style="width:${pct}%"></span></div>
+  </div>`;
+
   return `<div class="card">
-    <div class="card-head"><div><h2>③ 分集大纲与逐集正文</h2><div class="sub">${o.episodes.length} 集大纲 · 已写 ${done} 集 · 每集单独调用、单独过门</div></div>
+    <div class="card-head"><div><h2>③ 分集大纲与逐集正文</h2><div class="sub">${total} 集大纲 · 已写 ${done} 集 · 每段单独调用、单独过门</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" data-act="copyallep"${done ? '' : ' disabled'} title="${done ? `把已写好的 ${done} 集正文按集序拼成一份复制` : '还没有写好的集：先点某一集的「写第 N 集」'}">${ICONS.copy}复制全集</button>
         <button class="btn" data-run="genOutline">${ICONS.refresh}重写大纲</button>
       </div></div>
+    ${runner}
     <div class="pblock"><div class="pblock-head"><span class="ph-name">爽点分布</span><span class="tag outline">${o.beats.length} 个</span></div>
       <div class="pblock-body" style="max-height:180px;overflow:auto">${o.beats.map((b) => `<div style="margin-bottom:4px"><b>第${b.episode}集</b> ${b.weight === 'major' ? '<span class="tag rose">大爆点</span>' : ''} ${esc(b.type)}：${esc(b.setup)} → ${esc(b.payoff)}</div>`).join('')}</div></div>
     <div style="margin-top:12px">
       ${o.episodes.map((e) => {
         const r = eps[e.ep];
         const ok = r?.passed;
-        return `<div class="card" style="margin-bottom:8px;padding:12px">
+        const isCurrent = running && run.currentEp === e.ep;
+        return `<div class="card" style="margin-bottom:8px;padding:12px${isCurrent ? ';border-color:rgba(59,110,246,.45)' : ''}">
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <b style="min-width:44px">第${e.ep}集</b>
             ${e.paywall ? '<span class="tag rose" title="付费卡点：必须停在情绪最高点">💰 卡点</span>' : ''}
             ${e.hookType ? `<span class="tag outline" title="集尾钩子类型">${esc(e.hookType)}</span>` : ''}
             ${e.stage ? `<span class="muted" style="font-size:10.5px" title="所属节奏段落">${esc(stageLabel(e.stage))}</span>` : ''}
             <span class="muted" style="flex:1;min-width:200px;font-size:11.5px">${esc((e.synopsis ?? '').slice(0, 60))}${e.synopsis?.length > 60 ? '…' : ''}</span>
+            ${isCurrent ? '<span class="tag amber"><span class="spin"></span> 生成中…</span>' : ''}
             ${r ? (ok
               ? `<span class="tag teal">门 ${r.gates.filter((g) => g.ok).length}/${r.gates.length}</span>`
               : `<span class="tag amber">门 ${r.gates.filter((g) => g.ok).length}/${r.gates.length}</span>`)
               : ''}
             ${r ? `<span class="muted" style="font-size:10.5px">${r.text.length} 字</span>` : ''}
             ${r ? `<button class="btn" data-genepview="${e.ep}">${r.open ? '收起' : '看正文'}</button>`
-              : (state.busy?.genEp
-                ? `<button class="btn" disabled>处理中…</button>`
+              : (running || state.busy?.genEp
+                ? `<button class="btn" disabled>${isCurrent ? '处理中…' : '排队中'}</button>`
                 : `<button class="btn btn-primary" data-genep="${e.ep}">${ICONS.film}写第${e.ep}集</button>`)}
           </div>
           ${r?.open ? `<div class="pblock" style="margin-top:8px">
@@ -457,6 +479,27 @@ export function viewFormat() {
   <div style="margin-top:16px">${importCard()}</div>`;
 }
 /* ================= 运行器 ================= */
+
+/* 增量生成的停止标记。用模块级变量而不是 state：
+ * 它是一次交互的临时开关，不该进任何持久化结构，刷新即失效。 */
+let genStopRequested = false;
+
+/** 把已写的集拼成整稿并过双体检。抽出来是因为「手动组装」和「增量跑完自动交付」都要用 */
+async function doAssemble({ auto = false } = {}) {
+  const f = state.data.genflow;
+  if (!f?.story || !f.outline) return toast('先生成大纲', 'warn');
+  const texts = Object.keys(f.eps ?? {}).sort((a, b) => a - b).map((k) => f.eps[k].text);
+  if (!texts.length) return toast('还没写任何一集', 'warn');
+  const r = await api.genAssemble({ story: f.story, outline: f.outline, texts });
+  state.data.genflow = { ...state.data.genflow, assembled: r };
+  const okN = r.gates.filter((g) => g.ok).length;
+  toast(
+    `${auto ? '增量生成完成，已自动整体交付' : '整稿组装完成'}：${r.script.episodes.length} 集 · ${okN}/${r.gates.length} 门通过`,
+    r.passed ? 'ok' : 'warn',
+  );
+  return r;
+}
+
 export const runners = {
   load: loadScript,
 
@@ -531,13 +574,79 @@ export const runners = {
   },
 
   async genAssemble() {
-    const f = state.data.genflow;
-    if (!f?.story || !f.outline) return toast('先生成大纲', 'warn');
-    const texts = Object.keys(f.eps).sort((a, b) => a - b).map((k) => f.eps[k].text);
-    if (!texts.length) return toast('还没写任何一集', 'warn');
-    const r = await api.genAssemble({ story: f.story, outline: f.outline, texts });
-    state.data.genflow = { ...f, assembled: r };
-    toast(r.passed ? `整稿组装完成：${r.script.episodes.length} 集，${r.gates.filter((g) => g.ok).length}/${r.gates.length} 门通过` : '整稿组装完成，有门未过——看下面的诊断', r.passed ? 'ok' : 'warn');
+    await doAssemble();
+  },
+
+  /** 增量生成：一段（一集）一次，写完立刻上屏，全部完成后自动组装整稿 */
+  async genRun() {
+    const f0 = state.data.genflow;
+    if (!f0?.story || !f0.outline) return toast('先生成梗概与分集大纲', 'warn');
+
+    const total = f0.outline.episodes.length;
+    const eps = { ...(f0.eps ?? {}) };
+    // 断点续跑：只补还没写过的段，已完成的绝不重写（真模型下每段都花钱）
+    const pending = f0.outline.episodes.map((e) => e.ep).filter((ep) => !eps[ep]);
+    if (!pending.length) return toast('每一段都已写完，直接组装整稿即可', 'warn');
+
+    genStopRequested = false;
+    state.data.genflow = {
+      ...f0,
+      run: { running: true, total, currentEp: pending[0], failedEp: null, startedAt: Date.now() },
+    };
+    render(); // 立刻进「运行中」外观：按钮变停止、进度条归位
+
+    let wrote = 0;
+    for (const ep of pending) {
+      if (genStopRequested) break;
+
+      // 先把「正在写第 N 集」画出来，再发起请求——否则用户只看到一个卡住的按钮
+      state.data.genflow = { ...state.data.genflow, run: { ...state.data.genflow.run, currentEp: ep } };
+      render();
+
+      try {
+        const prev = eps[ep - 1]?.text?.slice(-100) ?? '';
+        const r = await api.genEpisode({ story: f0.story, outline: f0.outline, ep, prevEnding: prev });
+        // 收拢其它段的展开状态，只把刚写完的这段展开——
+        // 这样「逐步呈现」是真的能看到正文一段段长出来，而不只是列表刷新
+        for (const k of Object.keys(eps)) eps[k] = { ...eps[k], open: false };
+        eps[ep] = { text: r.text, passed: r.passed, gates: r.gates, open: true };
+        wrote += 1;
+        state.data.genflow = { ...state.data.genflow, eps: { ...eps }, assembled: null };
+        render(); // 这一段立刻上屏：正文、字数、门结果
+      } catch (e) {
+        state.data.genflow = {
+          ...state.data.genflow,
+          eps: { ...eps },
+          run: { ...state.data.genflow.run, running: false, currentEp: null, failedEp: ep },
+        };
+        render();
+        return toast(
+          `第 ${ep} 段失败：${e.message}。已完成 ${Object.keys(eps).length}/${total} 段，可再点「继续增量生成」从第 ${ep} 段续跑`,
+          'err',
+        );
+      }
+    }
+
+    const doneCount = Object.keys(eps).length;
+    const stopped = genStopRequested;
+    state.data.genflow = {
+      ...state.data.genflow,
+      run: { ...state.data.genflow.run, running: false, currentEp: null },
+    };
+    render();
+
+    if (stopped) return toast(`已停止：本次写了 ${wrote} 段，累计 ${doneCount}/${total} 段`, 'warn');
+    if (doneCount < total) return toast(`已写 ${doneCount}/${total} 段，剩余可继续增量生成`, 'warn');
+
+    // 全部完成 → 整体交付（组装 + 大纲门 + 剧本门双体检）
+    await doAssemble({ auto: true });
+    render();
+  },
+
+  /** 停止增量：当前这一段写完就停，不会把半集落盘 */
+  genStop() {
+    genStopRequested = true;
+    toast('正在停止：当前这一段写完后停止', 'warn');
   },
 
   /** 组装稿 → 本工具的输入：生成结果只留在「AI 剧本生成」这一页，不外溢给别的工具 */
