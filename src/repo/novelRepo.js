@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { JsonStore } from './jsonStore.js';
 import { notFound } from '../errors.js';
+import { wordCount } from '../engine/novelGates.mjs';
 
 /**
  * 小说作品仓（单本一文件 + 一份索引）
@@ -56,11 +57,31 @@ export async function indexNovel(book) {
 export function getNovel(id) {
   if (typeof id !== 'string' || !ID_RE.test(id)) throw notFound(`小说 ${id} 不存在`);
   try {
-    return store.read(`novel-${id}`);
+    return migrateWordCount(store.read(`novel-${id}`));
   } catch (err) {
     if (err.code === 'NOT_FOUND') throw notFound(`小说 ${id} 不存在`);
     throw err;
   }
+}
+
+/**
+ * 旧稿的字数是「含标点」的算法（4500 字里可能有一千个标点）。
+ * 这里在读的时候按新口径重算一遍并打标记，下次保存时自然落盘。
+ * 不做成阻塞式迁移脚本：书是用户数据，能就地算就别动文件。
+ */
+function migrateWordCount(book) {
+  if (!book || book.countV2) return book;
+  for (const c of book.chapters ?? []) {
+    if (c?.text) {
+      c.words = wordCount(c.text);
+      c.countV2 = true;
+    }
+  }
+  if (book.memory) {
+    book.memory.totalChars = (book.chapters ?? []).reduce((n, c) => n + (c.words ?? 0), 0);
+  }
+  book.countV2 = true;
+  return book;
 }
 
 export async function saveNovel(book) {

@@ -12,7 +12,7 @@ import { autoFixScript, evaluateScript, estimateSeconds } from '../src/services/
 import { gateReport as outlineGates } from '../src/engine/outline.mjs';
 import { gateReport as scriptGates } from '../src/engine/script.mjs';
 import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
-import { bookGates, chapterGates, readiness, wordCount } from '../src/engine/novelGates.mjs';
+import { bookGates, chapterGates, readiness, wordCount, punctuationCount } from '../src/engine/novelGates.mjs';
 import { tidyDialogue, tidyChapterBody } from '../src/engine/textClean.mjs';
 import {
   analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
@@ -1052,7 +1052,8 @@ t('小说：纪律模式下章数装不下目标字数才判错', () => {
 });
 
 t('小说：单章门齐全（1 道硬门 + 6 道建议），合格章全过', () => {
-  const body = '他把票根摊开。\n\n「今晚开闸吗。」\n\n没开。守夜人摇头，电筒照在他脸上。\n\n'.repeat(90)
+  // 单块 25 字（不计标点），重复 120 次 ≈ 3000 字，正好落在 95%–115% 区间
+  const body = '他把票根摊开。\n\n「今晚开闸吗。」\n\n没开。守夜人摇头，电筒照在他脸上。\n\n'.repeat(120)
     + '门外有人敲了三下。';
   const chapter = { index: 1, text: body, words: wordCount(body), scan: { score: 30, grade: '良好' } };
   const g = chapterGates({ book: goodBook(), chapter, prev: null, maxScan: 55 });
@@ -1247,6 +1248,28 @@ t('清理：整章收尾只动排版，不动字数语义', () => {
   const { text, changes } = tidyChapterBody('  第一段。「急事。」\n\n\n\n第二段。  ');
   assert.equal(text, '第一段。「急事」\n\n第二段。');
   assert.ok(changes.length >= 2, '应记录清理项');
+});
+
+
+t('字数口径：标点与空白不计入字数', () => {
+  const a = '「你过来。」';           // 中文 3 字 + 6 个标点
+  assert.equal(wordCount(a), 3, `标点不该计入，实际 ${wordCount(a)}`);
+  assert.equal(wordCount('他说：走吧！'), 4);
+  assert.equal(wordCount('    \n\n  '), 0, '空白为 0');
+});
+
+t('字数口径：英文按词、数字串按 1 计', () => {
+  assert.equal(wordCount('OK'), 1);
+  assert.equal(wordCount('2026'), 1);
+  assert.equal(wordCount('他说 OK 三遍'), 5, '中文3 + OK1 + 三遍2');
+});
+
+t('字数口径：与「含标点字符数」有明显差额（这正是用户觉得不合理的原因）', () => {
+  const text = '「你过来。」周禄把折子合上，「我只认折子。上面有名，有画，有用途。」';
+  const raw = text.replace(/\s/g, '').length;
+  const eff = wordCount(text);
+  assert.ok(raw - eff >= 10, `差额应可观：raw=${raw} eff=${eff}`);
+  assert.equal(punctuationCount(text), raw - eff + 0, '标点数应与差额一致');
 });
 
 for (const [name, fn] of asyncTests) {

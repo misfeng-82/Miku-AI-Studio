@@ -975,6 +975,15 @@ await t('字数严格：默认落在目标 95%–115%', async () => {
   return `${ch.words}/${ch.targetWords} 字`;
 });
 
+await t('字数不计标点：存的是净字数，不是含标点字符数', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const ch = r.data.book.chapters.find((c) => c.index === 1);
+  const raw = ch.text.replace(/\s/g, '').length;
+  truthy(ch.words < raw, `净字数应小于含标点字符数（${ch.words} vs ${raw}）`);
+  truthy(raw - ch.words >= 100, `差额应包含标点，实际只差 ${raw - ch.words}`);
+  return `含标点 ${raw} → 净字数 ${ch.words}`;
+});
+
 await t('编造检测结果随章节返回（可为空）', async () => {
   const r = await call('GET', `/api/novels/${novelId}`);
   const ch = r.data.book.chapters.find((c) => c.index === 1);

@@ -1,3 +1,5 @@
+import { wordCount } from './novelGates.mjs';
+
 /**
  * 小说引擎 · 连续性记忆（纯规则，不花额度）
  *
@@ -194,7 +196,7 @@ export function analyzeChapter(title, text, opts = {}) {
   const t = String(text ?? '');
   return {
     title: String(title ?? ''),
-    chars: t.replace(/\s/g, '').length,
+    chars: wordCount(t),   // 与章节字数同一口径：不计标点与空白
     points: extractPoints(t, 3),
     keywords: extractKeywords(t, 10),
     characters: extractCharacters(t, { cast: opts.cast ?? [] }),

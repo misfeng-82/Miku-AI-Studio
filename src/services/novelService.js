@@ -344,6 +344,7 @@ export async function writeChapter(id, index, opts = {}) {
     title: entry.title || `第${idx}章`,
     text,
     words: wordCount(text),
+    countV2: true,          // 字数新口径（不计标点），见 novelGates.wordCount
     scan: scan ? { score: scan.score, grade: scan.grade } : null,
     gates,
     report: scan ? { dimensions: scan.dimensions, issues: scan.issues, clicheTotal: scan.clicheTotal } : null,

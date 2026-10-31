@@ -23,9 +23,29 @@ const HOOK_TAIL_CHARS = 60;
 
 const cjk = (s) => String(s ?? '').replace(/[^\u4e00-\u9fff]/g, '');
 
-/** 去掉空白后的净字数（中文按字算，和项目其它地方口径一致） */
+/**
+ * 净字数（**不计标点、不计空白**）。
+ *
+ * 早先的实现是「去掉空白后的字符数」，把。，、！？「」……全算进去了，
+ * 一段对话密的稿子能虚高 15%–20%——用户看到的「4950 字」和丢进 Word 里数的对不上，
+ * 自然觉得不合理。这里改成：
+ *   中文按字计 + 英文按词计 + 数字串按 1 计，标点与符号一律不算。
+ * 这也是中文写作里通行的「字数」口径。
+ */
 export function wordCount(text) {
-  return String(text ?? '').replace(/\s+/g, '').length;
+  const t = String(text ?? '');
+  const cjk = (t.match(/[\u4e00-\u9fa5]/g) ?? []).length;
+  const latin = (t.match(/[A-Za-z]+/g) ?? []).length;
+  const digits = (t.match(/\d+/g) ?? []).length;
+  return cjk + latin + digits;
+}
+
+/** 标点与空白占了多少字符（只用于界面解释「为什么字数变少了」） */
+export function punctuationCount(text) {
+  const t = String(text ?? '');
+  const all = t.replace(/\s+/g, '').length;
+  const eff = wordCount(t) - (t.match(/[A-Za-z]+/g) ?? []).reduce((n, w) => n + w.length - 1, 0);
+  return Math.max(0, all - eff);
 }
 
 /**

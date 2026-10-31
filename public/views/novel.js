@@ -160,7 +160,7 @@ function latestChapterCard(b) {
     <div class="card-head"><div><h2>第${ch.index}章 ${esc(ch.title)}</h2>
       <div class="sub">${ch.words} 字${ch.targetWords ? `（目标 ${ch.targetWords}）` : ''} · AI 痕迹 ${ch.scan?.score ?? '—'}（${esc(ch.scan?.grade ?? '')}）${(ch.tidy ?? []).length ? ` · 排版清理 ${ch.tidy.length} 处` : ''}</div></div>
       <div class="chip-row">${chapterTag(ch)}
-        <button class="btn btn-sm" data-copy="${esc(ch.text)}">${ICONS.copy}复制正文</button>
+        <button class="btn btn-sm" data-copychapter="${ch.index}" title="复制这一章完整正文">${ICONS.copy}复制本章</button>
       </div></div>
     ${ch.gates?.length ? gateList(ch.gates) : ''}
     ${(ch.memory?.points ?? []).length ? `<div style="margin-top:12px"><div class="fl" style="margin-bottom:6px">本章要点（自动提炼，供下一章参考）</div>

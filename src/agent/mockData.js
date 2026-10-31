@@ -705,19 +705,21 @@ function buildNovelChapter(params = {}) {
     '灯全灭了。只剩他一盏手电，照着台阶上新踩出来的脚印。',
   ][idx % 4];
 
+  // 字数要按「不计标点」的口径数：真实的字数门就是这么算的，
+  // 用字符串长度当字数，样本正文会永远偏少（标点占了十几个百分点）
+  const countWords = (s2) => (s2.match(/[\u4e00-\u9fa5]/g) ?? []).length
+    + (s2.match(/[A-Za-z]+/g) ?? []).length
+    + (s2.match(/\d+/g) ?? []).length;
+
   const seq = [4, 0, 2, 1, 6, 3, 8, 5, 9, 10, 7, 11];
   let out = pool[(h + 2) % pool.length] + '\n\n';
-  let n = out.length;
   let i = 0;
-  while (n < words - 90) {
+  while (countWords(out) < words - 60) {
     const para = pool[(h + seq[i % seq.length]) % pool.length];
     out += para + '\n\n';
-    n += para.length;
     if (i % 3 === 1) {
       const [who, say] = lines[(h + i) % lines.length];
-      const dlg = `${who}：「${say}」`;
-      out += dlg + '\n\n';
-      n += dlg.length;
+      out += `${who}：「${say}」\n\n`;
     }
     i += 1;
   }
