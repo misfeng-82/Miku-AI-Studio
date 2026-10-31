@@ -151,6 +151,27 @@ async function writeChapterFromButton(btn, index) {
   }
 }
 
+/**
+ * 两步确认：不依赖 window.confirm。
+ * 内置预览面板跑在 iframe 里，confirm() 常被浏览器直接拦掉（返回 false），
+ * 结果就是「点了删除没反应」——用户以为功能坏了。
+ * 这里改成按钮自己变「确认删除？」，3 秒内再点一次才真执行；不点就自动复位。
+ */
+function armConfirm(btn, label = '确认删除？') {
+  if (btn.dataset.armed === '1') return true;
+  if (!btn.dataset.origText) btn.dataset.origText = btn.innerHTML;
+  btn.dataset.armed = '1';
+  btn.innerHTML = label;
+  btn.classList.add('btn-danger');
+  clearTimeout(btn._armTimer);
+  btn._armTimer = setTimeout(() => {
+    btn.dataset.armed = '0';
+    btn.innerHTML = btn.dataset.origText;
+    btn.classList.remove('btn-danger');
+  }, 3000);
+  return false;
+}
+
 /* ================= 小说写作台：编辑、自动保存、快捷键 ================= */
 let NOVEL_SAVE_TIMER = null;
 
@@ -331,7 +352,7 @@ $('#apiModal').addEventListener('click', (e) => { if (e.target.id === 'apiModal'
 $('#amSave').addEventListener('click', saveApiSettings);
 $('#amTest').addEventListener('click', testApiSettings);
 $('#amClear').addEventListener('click', async () => {
-  if (!confirm('确定抹除本机保存的 API 配置？\n\nKey 与 Base URL 会从 data/settings.json 中删除，不可恢复。\n之后调用模型相关功能会提示「未接入」。')) return;
+  if (!armConfirm(btn, '确认抹除配置？')) return;
   try {
     const r = await api.clearSettings();
     $('#amKey').value = '';
@@ -358,11 +379,13 @@ $('#amPreset').addEventListener('change', (e) => {
 });
 
 /* ================= 事件委托 ================= */
+// 需要二次确认的动作（与 armConfirm 配合）
+const CONFIRM_ACTS = new Set(['resetusage']);
+
 const ACTIONS = {
   // 首页/引导卡里点「去接入模型」直接打开配置弹窗
   openapi: openApiModal,
   resetusage: async () => {
-    if (!confirm('清零本机的模型用量记录？只删统计数字，不动你的配置与项目。')) return;
     await api.llmUsageReset();
     state.data.usage = await api.llmUsage();
     render();
@@ -437,6 +460,8 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.run !== undefined) { const k = btn.dataset.run; run(k, RUNNERS[k]); return; }
   if (btn.dataset.act !== undefined) {
     const [name, arg] = btn.dataset.act.split(':');
+    // 破坏性动作要二次确认；不能再用 window.confirm（iframe 里会被拦掉）
+    if (CONFIRM_ACTS.has(name) && !armConfirm(btn, '确认执行？')) return;
     const fn = ACTIONS[name];
     if (fn) fn(arg);
     return;
@@ -466,6 +491,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (btn.dataset.noveldelete !== undefined) {
+    if (!armConfirm(btn, '确认删除？')) return;   // 第一次点只上膛
     novel.deleteBook(btn.dataset.noveldelete, btn.dataset.novelname || '这本书')
       .then((done) => { if (done) render(); })
       .catch((e) => toast(e.message, 'err'));
@@ -484,6 +510,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (btn.dataset.noveldelch !== undefined) {
+    if (!armConfirm(btn, '确认？')) return;
     novel.deleteChapter(btn.dataset.noveldelch).then(render).catch((e) => toast(e.message, 'err'));
     return;
   }
@@ -522,6 +549,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (btn.dataset.novelrestore !== undefined) {
+    if (!armConfirm(btn, '确认还原？')) return;
     run('novelCompose', async () => {
       await novel.restoreChapter(btn.dataset.novelrestore);
       render();

@@ -385,7 +385,7 @@ export async function addChapter() {
 export async function deleteChapter(id) {
   const b = book();
   if (!b) return;
-  if (!confirm('删除这一章？正文会一起删掉，不可恢复。')) return;
+  // 确认由界面的两步按钮负责（iframe 里 window.confirm 会被拦掉）
   await api.novelDeleteChapter(b.id, id);
   const full = await api.novel(b.id);
   state.data.novel = { ...(state.data.novel ?? {}), book: full.book, activeId: full.book.chapters.at(-1)?.id ?? null, scan: null };
@@ -461,7 +461,7 @@ export async function setTitle(title) {
 }
 
 export async function deleteBook(id, title) {
-  if (!confirm(`删除《${title}》？\n\n只从书目移除，正文文件 data/novel-${id}.json 仍保留，可找回。`)) return false;
+  // 确认由两步按钮负责；这里只管执行
   await api.novelDelete(id);
   await backToShelf();
   toast(`已移除《${title}》`);
@@ -483,7 +483,6 @@ export async function tidyChapter() {
 export async function restoreChapter(ts) {
   const b = book(); const ch = cur();
   if (!b || !ch) return;
-  if (!confirm('还原到这个版本？当前内容会先留一份，可再还原回来。')) return;
   const r = await api.novelRestore(b.id, ch.id, ts);
   state.data.novel = { ...(state.data.novel ?? {}), book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)) } };
   toast('已还原');
