@@ -1317,17 +1317,7 @@ t('编辑工具：一键整理会同时清 MD + 统一标点 + 排版', () => {
 
 
 /* ---- 云服务接入（配置形状与优先级）---- */
-t('云服务：默认配置形状合法（endpoint / publishableKey 齐全）', async () => {
-  const { publicConfig, cloudEnabled } = await import('../src/cloud/client.js');
-  const cfg = publicConfig();
-  truthy(cfg, '应读到默认配置');
-  truthy(/^https?:\/\//.test(cfg.endpoint), 'endpoint 必须是 http(s)');
-  truthy(cfg.publishableKey.startsWith('wbpk_'), 'publishableKey 形态');
-  truthy(cfg.model, '应指定具体模型（不选 auto）');
-  assert.equal(cloudEnabled(), true);
-});
-
-t('云服务：模型选择跳过 auto，优先用配置里指定的', async () => {
+t('云服务：模型选择跳过 auto，优先用配置里指定的', () => {
   const list = [
     { id: 'auto', disabled: undefined },
     { id: 'glm-5.3-flash', disabled: undefined },
@@ -1341,13 +1331,24 @@ t('云服务：模型选择跳过 auto，优先用配置里指定的', async () 
   assert.equal(picked.id, 'glm-5.3-flash', '应优先指定模型');
 });
 
-t('云服务：USE_MOCK 优先于云（测试不花钱、不断网）', async () => {
-  const llm = await import('../src/agent/llm.js');
-  // mock 模式下不会去连云端；这里只验证判断顺序的写法：useMock 先于 cloudEnabled
-  const order = readFileSync('src/agent/llm.js', 'utf8');
-  const iMock = order.indexOf("config.llm.useMock");
-  const iCloud = order.indexOf('cloudEnabled()');
-  truthy(iMock > 0 && iCloud > 0 && iMock < iCloud, 'USE_MOCK 必须排在 cloud 之前');
+t('云服务：USE_MOCK 必须排在 cloud 之前（测试不花钱、不断网）', () => {
+  const src = readFileSync('src/agent/llm.js', 'utf8');
+  const iMock = src.indexOf('config.llm.useMock');
+  const iCloud = src.indexOf('cloudEnabled()');
+  assert.ok(iMock > 0 && iCloud > 0, '两处判断都要在');
+  assert.ok(iMock < iCloud, 'USE_MOCK 必须排在 cloud 之前');
+});
+
+// 需要 import 云客户端（会加载 SDK），必须走 tAsync：塞进同步 t() 会变成未处理的 Promise 拒绝，
+// 在 CI 上直接把进程干掉（本地侥幸没炸）。
+tAsync('云服务：默认配置形状合法（endpoint / publishableKey / 模型）', async () => {
+  const { publicConfig, cloudEnabled } = await import('../src/cloud/client.js');
+  const cfg = publicConfig();
+  assert.ok(cfg, '应读到默认配置');
+  assert.match(cfg.endpoint, /^https?:\/\//, 'endpoint 必须是 http(s)');
+  assert.match(cfg.publishableKey, /^wbpk_/, 'publishableKey 形态');
+  assert.ok(cfg.model, '应指定具体模型（不选 auto）');
+  assert.equal(cloudEnabled(), true);
 });
 
 for (const [name, fn] of asyncTests) {
