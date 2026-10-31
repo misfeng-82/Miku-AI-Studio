@@ -11,6 +11,7 @@ import * as storyboard from './views/storyboard.js';
 import * as tools from './views/tools.js';
 import * as system from './views/system.js';
 import * as deai from './views/deai.js';
+import * as novel from './views/novel.js';
 
 /* ================= 侧栏注册表（单一事实来源） ================= */
 const SIDEBAR = [
@@ -22,6 +23,9 @@ const SIDEBAR = [
     { id: 'hot', name: '爆款榜单', icon: 'radar' },
     { id: 'split', name: '爆款拆解', icon: 'scissors' },
     { id: 'compare', name: '对标分析', icon: 'scale', hot: true },
+  ]},
+  { group: '小说创作', items: [
+    { id: 'novel', name: 'AI 写小说', icon: 'book', hot: true },
   ]},
   { group: '剧本创作', items: [
     { id: 'gen', name: 'AI 剧本生成', icon: 'spark', hot: true },
@@ -66,6 +70,7 @@ const PAGES = {
   evaluate: quality.viewEvaluate,
   optimize: quality.viewOptimize,
   deai: deai.viewDeai,
+  novel: novel.viewNovel,
   stats: quality.viewStats,
   storyboard: storyboard.viewStoryboard,
   assets: assets.viewAssets,
@@ -76,6 +81,18 @@ const PAGES = {
   titles: tools.viewTitles,
 };
 
+/* ================= 按需加载 ================= */
+// 只有「小说」列表需要进页面时才拉：列表可能很长，首屏不该为它等一次请求。
+// 拉完再 render 一次，于是第一次进来不会停在「正在读取书目…」。
+async function lazyLoad(view) {
+  if (view === 'novel' && state.data.novel === null) {
+    try {
+      state.data.novel = { list: (await api.novels()).items, book: null, gates: [], readiness: null };
+      render();
+    } catch { /* 拉不到就停在空态，不阻断页面 */ }
+  }
+}
+
 /* ================= 运行器汇总 ================= */
 const RUNNERS = {
   ...intel.runners,
@@ -85,6 +102,7 @@ const RUNNERS = {
   ...storyboard.runners,
   ...tools.runners,
   ...deai.runners,
+  ...novel.runners,
   usage: system.runners.usage,
 };
 
@@ -324,7 +342,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -333,7 +351,7 @@ document.addEventListener('click', (e) => {
     window.open(btn.dataset.openurl, '_blank', 'noopener,noreferrer');
     return;
   }
-  if (btn.dataset.view !== undefined) { state.view = btn.dataset.view; save(); render(); return; }
+  if (btn.dataset.view !== undefined) { state.view = btn.dataset.view; save(); render(); lazyLoad(state.view); return; }
   if (btn.dataset.goto !== undefined) { state.view = btn.dataset.goto; save(); render(); return; }
   if (btn.dataset.run !== undefined) { const k = btn.dataset.run; run(k, RUNNERS[k]); return; }
   if (btn.dataset.act !== undefined) {
@@ -354,6 +372,25 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.linechar !== undefined) { state.sel.lineChar = btn.dataset.linechar; render(); return; }
   if (btn.dataset.deaitarget !== undefined) { state.cfg.deaiTarget = Number(btn.dataset.deaitarget) || 40; state.data.deai = null; save(); render(); return; }
   if (btn.dataset.deaiAdopt !== undefined) { deai.adoptRewrite(); render(); return; }
+  if (btn.dataset.novelopen !== undefined) {
+    novel.openBook(btn.dataset.novelopen).then(render).catch((e) => toast(e.message, 'err'));
+    return;
+  }
+  if (btn.dataset.novelnew !== undefined) {
+    novel.backToShelf().then(render).catch(() => render());
+    return;
+  }
+  if (btn.dataset.novelwrite !== undefined) {
+    const i = Number(btn.dataset.novelwrite);
+    run('novelWrite', () => RUNNERS.novelWrite(i));
+    return;
+  }
+  if (btn.dataset.novelexport !== undefined) {
+    novel.exportBook(btn.dataset.novelexport).catch((e) => toast(e.message, 'err'));
+    return;
+  }
+  if (btn.dataset.novelgenre !== undefined) { state.cfg.novelGenre = btn.dataset.novelgenre; save(); render(); return; }
+  if (btn.dataset.novelaud !== undefined) { state.cfg.novelAudience = btn.dataset.novelaud; save(); render(); return; }
   if (btn.dataset.titlegenre !== undefined) { state.cfg.titleGenre = btn.dataset.titlegenre; save(); render(); return; }
   // AI 剧本生成：写某一集（集数从按钮上带下来，闭包进 runner）；展开/收起某一集正文
   if (btn.dataset.genep !== undefined) { const ep = Number(btn.dataset.genep); run('genEp', () => RUNNERS.genEp(ep)); return; }
@@ -467,7 +504,7 @@ document.addEventListener('keydown', (e) => {
   if (e.altKey && /^[1-9]$/.test(e.key)) {
     const idx = Number(e.key) - 1;
     const v = ALL_ITEMS[idx];
-    if (v) { e.preventDefault(); state.view = v.id; save(); render(); }
+    if (v) { e.preventDefault(); state.view = v.id; save(); render(); lazyLoad(v.id); }
   }
 });
 
@@ -486,6 +523,7 @@ async function boot() {
   // 不再根据「上次选的项目」自动往工具里灌剧本——每个工具的输入只归它自己
   state.projectId = null;
   render();
+  lazyLoad(state.view);
   if (!state.data.hot) run('hot', RUNNERS.hot).catch(() => {});
 }
 boot();

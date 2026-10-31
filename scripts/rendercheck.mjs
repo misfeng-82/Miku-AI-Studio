@@ -45,6 +45,7 @@ const views = {
   library: (await import('../public/views/system.js')).viewLibrary,
   engine: (await import('../public/views/system.js')).viewEngine,
   deai: (await import('../public/views/deai.js')).viewDeai,
+  novel: (await import('../public/views/novel.js')).viewNovel,
 };
 
 let pass = 0;
@@ -119,6 +120,7 @@ state.data = { inputs: {} };
 for (const k of scriptTools) giveInput(k);
 
 const cleanupIds = [];
+const novelCleanup = [];
 
 const withData = [
   ['hot', async () => { state.data.hot = await call('GET', '/api/hot?limit=8'); }],
@@ -134,6 +136,22 @@ const withData = [
   ['format', async () => { state.view = 'format'; state.data.fmt = await call('POST', '/api/format', { script: SCRIPT, outline: OUTLINE, format: 'short-drama' }); }],
   ['templates', async () => { state.view = 'templates'; state.data.tpl = await call('POST', '/api/templates/character-turnaround/fill', { vars: { 角色名: '沈知微' } }); }],
   ['polish', async () => { state.view = 'polish'; state.data.polish = await call('POST', '/api/polish', { line: '那个，我其实吧，就是不想去' }); }],
+  ['novel', async () => {
+    // 小说页有三种形态：空书目 / 有新书无设定 / 完整工作台。渲染检查必须画到最复杂那种。
+    state.view = 'novel';
+    const created = await call('POST', '/api/novels', {
+      title: '渲染检查临时长篇', genre: '悬疑',
+      logline: '所有人都说那场船难是意外，只有他记得江上一盏没熄的灯。',
+      targetWords: 60000, wordsPerChapter: 3000,
+    });
+    const id = created.book.id;
+    novelCleanup.push(id);
+    await call('POST', `/api/novels/${id}/bible`, {});
+    await call('POST', `/api/novels/${id}/outline`, {});
+    await call('POST', `/api/novels/${id}/chapter`, { index: 1 });
+    const full = await call('GET', `/api/novels/${id}`);
+    state.data.novel = { list: (await call('GET', '/api/novels')).items, book: full.book, gates: full.gates, readiness: full.readiness };
+  }],
   ['deai', async () => {
     // 扫描是纯本地的，正常路径能真跑；改写要模型，这里覆盖「扫描后」「改写被跳过」两个分支
     state.view = 'deai';
@@ -210,6 +228,8 @@ try {
 
 // 清理本次临时造的作品（只删自己造的，不动已有数据）
 for (const id of cleanupIds) { try { await call('DELETE', `/api/projects/${id}`); } catch { /* 忽略 */ } }
+// 小说是软删（只摘索引），临时书不会污染真实书目
+for (const id of novelCleanup) { try { await call('DELETE', `/api/novels/${id}`); } catch { /* 忽略 */ } }
 
 console.log('\n' + '='.repeat(56));
 if (fails.length) {

@@ -12,6 +12,7 @@ import { autoFixScript, evaluateScript, estimateSeconds } from '../src/services/
 import { gateReport as outlineGates } from '../src/engine/outline.mjs';
 import { gateReport as scriptGates } from '../src/engine/script.mjs';
 import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
+import { bookGates, chapterGates, readiness, wordCount } from '../src/engine/novelGates.mjs';
 import { parseScriptText } from '../public/parseScriptText.js';
 import { generateStory, generateOutline, generateEpisode, assemble, splitLongLines } from '../src/services/scriptGenService.js';
 import { HOT_DRAMAS, HOT_BOARD_META } from '../src/assets/hotDramas.js';
@@ -971,6 +972,125 @@ t('去 AI 味：门禁结构与其它引擎同形', () => {
   assert.equal(typeof g.label, 'string');
   assert.equal(typeof g.ok, 'boolean');
   assert.match(g.detail, /AI 痕迹分/);
+});
+
+
+/* ---- 小说引擎门禁（设定门 8 道 + 单章门 6 道）---- */
+// 这些用例锁的是「门到底在数什么」：章数够不够装字数、伏笔有没有回收、
+// 章末有没有钩子、对话够不够、AI 痕迹过不过线。门判错了比没有门更糟。
+function goodBook() {
+  return {
+    title: '渡口灯',
+    logline: '所有人都说那场船难是意外，只有他记得江上一盏没熄的灯。',
+    targetWords: 60000,
+    wordsPerChapter: 3000,
+    bible: {
+      promise: { sellingPoint: '一盏没熄的灯', theme: '为真相付多少', ending: '他拿回了证词，代价是自己的名字' },
+      characters: [
+        { name: '沈砚', role: '主角', want: '查清船难', flaw: '不信任何人', voice: '句子短', arc: '学会下注' },
+        { name: '江照', role: '女主', want: '拿回码头', flaw: '怕水', voice: '爱反问', arc: '' },
+        { name: '陈九', role: '反派', want: '让所有人闭嘴', flaw: '占上风就收不住', voice: '下命令', arc: '' },
+      ],
+      world: [
+        { rule: '退潮时石阶露出不该有的门', cost: '拿一个名字去换', bound: '名字给出就没人再提起' },
+        { rule: '雾能盖住声音', cost: '身上留腥气', bound: '只在无风夜里起雾' },
+        { rule: '船票认人', cost: '留下随身之物', bound: '一人一票' },
+      ],
+    },
+    outline: {
+      chapters: Array.from({ length: 20 }, (_, i) => ({
+        index: i + 1, title: `第${i + 1}章`, goal: '拿到票', conflict: '守夜人挡着', turn: '证人是他舅舅', hook: '门外有人敲了三下。',
+      })),
+      foreshadow: [
+        { id: 'F1', content: '那盏灯', plantAt: 1, payoffAt: 14, tier: 1 },
+        { id: 'F2', content: '票根背面的字', plantAt: 2, payoffAt: 18, tier: 1 },
+      ],
+    },
+    chapters: [],
+  };
+}
+
+t('小说：完整设定集 8 道门全过', () => {
+  const g = bookGates(goodBook());
+  assert.equal(g.length, 8);
+  const bad = g.filter((x) => !x.ok);
+  assert.equal(bad.length, 0, `未过：${bad.map((x) => x.label).join('、')}`);
+});
+
+t('小说：没排章纲时，篇幅/章纲/伏笔三道门必须挂', () => {
+  const b = goodBook();
+  b.outline = null;
+  const failed = bookGates(b).filter((g) => !g.ok).map((g) => g.id);
+  for (const id of ['scale', 'beats', 'foreshadow']) assert.ok(failed.includes(id), `应挂 ${id}`);
+});
+
+t('小说：伏笔只埋不收要被拦下', () => {
+  const b = goodBook();
+  b.outline.foreshadow[0].payoffAt = 1; // 等于埋设章，等于没回收
+  const g = bookGates(b).find((x) => x.id === 'foreshadow');
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /没回收/);
+});
+
+t('小说：章数装不下目标字数要被拦下', () => {
+  const b = goodBook();
+  b.targetWords = 200000;   // 20 章 × 3000 只有 6 万，差得远
+  const g = bookGates(b).find((x) => x.id === 'scale');
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /够不到/);
+});
+
+t('小说：单章六道门齐全，合格章全过', () => {
+  const body = '他把票根摊开。\n\n「今晚开闸吗。」\n\n没开。守夜人摇头，电筒照在他脸上。\n\n'.repeat(90)
+    + '门外有人敲了三下。';
+  const chapter = { index: 1, text: body, words: wordCount(body), scan: { score: 30, grade: '良好' } };
+  const g = chapterGates({ book: goodBook(), chapter, prev: null, maxScan: 55 });
+  assert.equal(g.length, 6);
+  const bad = g.filter((x) => !x.ok);
+  assert.equal(bad.length, 0, `未过：${bad.map((x) => `${x.label}(${x.detail})`).join('、')}`);
+});
+
+t('小说：字数偏离 ±25% 要被拦下', () => {
+  const body = '短。';
+  const g = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null });
+  assert.equal(g.find((x) => x.id === 'words').ok, false);
+});
+
+t('小说：长段收尾且无悬念信号 → 钩子门挂；短句收尾 → 过', () => {
+  const longTail = `${'他把船票摊在掌心，看了很久，想起父亲最后一次出门时的样子，也想起那天江面上没有风。'.repeat(6)}`;
+  const longGate = chapterGates({ book: goodBook(), chapter: { text: longTail, scan: { score: 20 } }, prev: null }).find((x) => x.id === 'hook');
+  assert.equal(longGate.ok, false, '长段收尾不应算钩子');
+
+  const shortTail = '他把票根摊开，又攥回去。\n\n日期是明天。';
+  const shortGate = chapterGates({ book: goodBook(), chapter: { text: shortTail, scan: { score: 20 } }, prev: null }).find((x) => x.id === 'hook');
+  assert.equal(shortGate.ok, true, `短句收尾应算钩子，实际：${shortGate.detail}`);
+});
+
+t('小说：末段自我总结要被拦下', () => {
+  const text = '他走了很远。\n\n他终于明白了，这一切都是命。';
+  const g = chapterGates({ book: goodBook(), chapter: { text, scan: { score: 20 } }, prev: null }).find((x) => x.id === 'no-summary');
+  assert.equal(g.ok, false);
+});
+
+t('小说：相邻两章开头雷同要被拦下', () => {
+  const text = '雾是从江面先起的。他往前走了一步。';
+  const prev = { text: '雾是从江面先起的，比昨天更浓。' };
+  const g = chapterGates({ book: goodBook(), chapter: { text, scan: { score: 20 } }, prev }).find((x) => x.id === 'repeat');
+  assert.equal(g.ok, false);
+});
+
+t('小说：就绪度能算出进度与通过章数', () => {
+  const b = goodBook();
+  b.chapters = [
+    { index: 1, text: 'x'.repeat(3000), words: 3000, gates: [{ ok: true }] },
+    { index: 2, text: 'y'.repeat(3000), words: 3000, gates: [{ ok: false }] },
+  ];
+  const r = readiness(b);
+  assert.equal(r.written, 2);
+  assert.equal(r.planned, 20);
+  assert.equal(r.progress, 10);
+  assert.equal(r.clean, 1);
+  assert.equal(r.bibleReady, true);
 });
 
 for (const [name, fn] of asyncTests) {

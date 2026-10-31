@@ -602,6 +602,129 @@ ${a}轻声：${nextL()}
 【黑屏】第${ep}集完`;
 }
 
+
+/* ---------------- 小说创作（设定集 / 章纲 / 正文） ----------------
+ * 样本引擎只保证「链路能跑通、门禁能被真的过一遍」，不追求文学质量。
+ * 但正文必须满足门禁（字数、对话、钩子、无总结结尾、AI 痕迹分），
+ * 否则测试会在样本模式下红一片，看起来像功能坏了。 */
+function buildNovelBible(params = {}) {
+  const title = String(params.title || '未命名长篇');
+  const h = hashStr(`novelbible|${title}`);
+  const names = ['沈砚', '江照', '陈九', '阿棠', '老陆', '白珩'];
+  const roles = ['主角', '女主', '反派', '配角', '配角', '配角'];
+  const wants = ['查清父亲当年的船难', '把码头从舅舅手里拿回来', '让所有人闭嘴', '离开这条街', '保住最后一间铺子', '等到一个说法'];
+  const flaws = ['不信任何人，连证据都要自己再验一遍', '怕水，却必须住在江边', '一旦占上风就收不住手', '欠了不该欠的人情', '记性差，常常忘了自己说过的话', '太要面子'];
+  const voices = ['句子短，少用形容词，习惯先报数字', '爱用反问，从不下结论', '说话像在下命令', '一句话里能塞三个语气词', '喜欢用旧词，张口就是三十年前', '客客气气，句句带刺'];
+  const characters = names.slice(0, 4 + (h % 3)).map((name, i) => ({
+    name, role: roles[i % roles.length], want: wants[i % wants.length],
+    flaw: flaws[i % flaws.length], voice: voices[i % voices.length],
+    arc: i === 0 ? '从只信证据，到愿意为一个不确定的人下注' : '在关键一章做出与本性相反的选择',
+  }));
+  const world = [
+    { rule: '潮汐退到最低时，旧码头的石阶会露出一段不该存在的门', cost: '每次开门要拿一个人的名字去换', bound: '名字一旦给出，说的人在世上就再没被提起过' },
+    { rule: '江上的雾能盖住声音，但盖不住血味', cost: '雾散之后，身上会留下洗不掉的腥气', bound: '只能在无风的夜里起雾' },
+    { rule: '船票是认人的，转手就作废', cost: '换票的人要留下一样随身的东西', bound: '一人一票，票根不能离身' },
+    { rule: '码头的老秤只称真话', cost: '说谎的人称出来的重量会轻三两', bound: '只在午夜到天亮之间准' },
+  ];
+  return {
+    promise: {
+      sellingPoint: '所有人都说那场船难是意外，只有他记得那天江面上一盏没熄的灯。',
+      theme: '一个人要为真相付出多少，才算付得起。',
+      ending: '他拿回的不是清白，是一个愿意作证的人；代价是他自己的名字被从江上抹掉。',
+    },
+    characters,
+    world,
+  };
+}
+
+function buildNovelOutline(params = {}) {
+  const total = Math.max(6, Number(params.chapters) || 12);
+  const h = hashStr(`noveloutline|${params.title ?? ''}|${total}`);
+  const goals = ['拿到第一份旧船票', '混进码头夜班', '逼出第一个证人', '第一次开门', '被自己人出卖', '换回一个名字'];
+  const conflicts = ['守夜人认得他的脸', '舅舅提前封了闸口', '证人要的不是钱', '门后的东西不认生人', '同伴先开了口', '对方拿走了他唯一的票根'];
+  const turns = ['以为在查别人，其实被查的是自己', '证人早就死了，说话的是他儿子', '开门换来的不是答案，是新的债', '救他的人正是害他的人', '他以为赢了，其实签了字', '真相只值一张船票'];
+  const hooks = ['门外有人敲了三下，停了两秒，又敲了一下。', '他低头看票根，日期是明天。', '“你父亲那天，也在船上。”', '雾里有人喊了他的名字。', '秤杆停住了，比应得的轻了三两。', '灯亮了，照见一张不该出现的脸。'];
+  const chapters = Array.from({ length: total }, (_, i) => ({
+    index: i + 1,
+    title: ['灯', '票', '秤', '雾', '门', '名字'][i % 6] + (i < 6 ? '（上）' : '（下）'),
+    goal: goals[(i + h) % goals.length],
+    conflict: conflicts[(i + h) % conflicts.length],
+    turn: turns[(i + h) % turns.length],
+    hook: hooks[(i + h) % hooks.length],
+    characters: ['沈砚'],
+  }));
+  const foreshadow = [
+    { id: 'F1', content: '那盏没熄的灯是谁点的', plantAt: 1, payoffAt: Math.max(2, Math.round(total * 0.7)), tier: 1 },
+    { id: 'F2', content: '票根背面的一行小字', plantAt: 2, payoffAt: Math.max(3, Math.round(total * 0.9)), tier: 1 },
+    { id: 'F3', content: '老陆每次说到三十年前都会咳嗽', plantAt: 3, payoffAt: total, tier: 2 },
+  ];
+  const volSize = Math.max(6, Math.ceil(total / Math.max(1, Math.ceil(total / 20))));
+  const volumes = [];
+  for (let from = 1; from <= total; from += volSize) {
+    volumes.push({ name: `卷${volumes.length + 1}`, from, to: Math.min(total, from + volSize - 1), climax: '他把票根拍在秤上' });
+  }
+  return { volumes, chapters, foreshadow };
+}
+
+function buildNovelChapter(params = {}) {
+  const idx = Math.max(1, Number(params.index) || 1);
+  const words = Math.max(800, Number(params.words) || 3000);
+  const title = String(params.title || '');
+  const h = hashStr(`novelchapter|${title}|${idx}`);
+
+  // 段落必须长短交错：句长 cv 和段长 cv 是「去 AI 味」13 维里权重最高的两项之一，
+  // 一段一段都是同样长度的四行，扫描器一眼就看出来是机器写的（分数会卡在 55 以上）。
+  const pool = [
+    '台阶上有一层薄薄的水，鞋底碾过去，发出很轻的一声。',
+    '守夜人没抬头。',
+    '他把手插进兜里，摸到那张磨毛的纸边，指腹在折痕上停了一下，又往前推了半寸。',
+    '汽笛拉长半拍。',
+    '空气里有股铁腥味，混着潮气，往领口里钻；他闻了闻，像血，又不太像。',
+    '灯只亮了一半。',
+    '他数台阶，十一级，比记忆里多一级。多出来的那一级是新的，水泥还没干透。',
+    '江面黑得没有反光。',
+    '守夜人的电筒晃了一下，停住，又晃了一下。',
+    '他把票根摊开，又攥回去，纸角扎进掌心。',
+    '雾贴着水面走，慢，像有人拖着一床湿被子。',
+    '他没再往前走。',
+  ];
+  const lines = [
+    ['沈砚', '今晚开闸吗。'],
+    ['守夜人', '不开。你走错地方了。'],
+    ['沈砚', '我父亲的票，是你们卖给他的。'],
+    ['守夜人', '票认人，不认儿子。'],
+    ['沈砚', '那就认我。'],
+    ['守夜人', '你连他的名字都不敢说。'],
+    ['沈砚', '他叫沈复。三十年前，跑夜船。'],
+    ['守夜人', '名字我记住了。你可以走了。'],
+  ];
+  const hook = [
+    '门外有人敲了三下，停了两秒，又敲了一下。',
+    '他低头看票根，日期是明天。',
+    '雾里有人喊了他的名字。',
+    '灯全灭了。只剩他一盏手电，照着台阶上新踩出来的脚印。',
+  ][idx % 4];
+
+  const seq = [4, 0, 2, 1, 6, 3, 8, 5, 9, 10, 7, 11];
+  let out = pool[(h + 2) % pool.length] + '\n\n';
+  let n = out.length;
+  let i = 0;
+  while (n < words - 90) {
+    const para = pool[(h + seq[i % seq.length]) % pool.length];
+    out += para + '\n\n';
+    n += para.length;
+    if (i % 3 === 1) {
+      const [who, say] = lines[(h + i) % lines.length];
+      const dlg = `${who}：「${say}」`;
+      out += dlg + '\n\n';
+      n += dlg.length;
+    }
+    i += 1;
+  }
+  out += hook;
+  return out;
+}
+
 /* ---------------- 入口 ---------------- */
 export function mockComplete({ system = '', user = '' } = {}) {
   const task = /__TASK__\s*:\s*([a-zA-Z_-]+)/.exec(user)?.[1] || '';
@@ -622,6 +745,10 @@ export function mockComplete({ system = '', user = '' } = {}) {
     case 'shots': return JSON.stringify(buildShots(params), null, 2);
     case 'eval': return JSON.stringify(buildEval(params), null, 2);
     case 'optrewrite': return buildEpScript(params);
+    // 小说创作：设定集/章纲吐 JSON，正文吐 Markdown
+    case 'novelbible': return JSON.stringify(buildNovelBible(params), null, 2);
+    case 'noveloutline': return JSON.stringify(buildNovelOutline(params), null, 2);
+    case 'novelchapter': return buildNovelChapter(params);
     default: return JSON.stringify({ ok: true, note: 'mock 默认应答', task }, null, 2);
   }
 }

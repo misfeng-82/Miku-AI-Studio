@@ -25,6 +25,7 @@ import * as polishService from '../services/polishService.js';
 import * as titleService from '../services/titleService.js';
 import * as relationsService from '../services/relationsService.js';
 import * as deaiService from '../services/deaiService.js';
+import * as novelService from '../services/novelService.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import { normalizeSettings, maskSettings, PRESETS, chatComplete } from '../agent/llmClient.js';
 import * as llmClient from '../agent/llmClient.js';
@@ -515,6 +516,44 @@ api.post('/api/relations', async (req, res) => {
   const { script, outline } = await resolveScript(b);
   sendJson(res, 200, relationsService.buildRelations(script, outline));
 });
+
+
+/* ---------------- 小说创作（长篇：设定集 → 章纲 → 逐章正文） ----------------
+ * 三个生成动作分开暴露：写到第 40 章时用户只改一章，不该被迫重跑整条链。 */
+api.get('/api/novels', (req, res) => sendJson(res, 200, { items: novelService.listBooks() }));
+
+api.post('/api/novels', async (req, res) => {
+  const b = req.body ?? {};
+  sendJson(res, 201, await novelService.createBook({
+    title: requireString(b.title, 'title', { min: 1, max: 40 }),
+    genre: optionalString(b.genre, 'genre', { max: 40 }) ?? '',
+    logline: optionalString(b.logline, 'logline', { max: 200 }) ?? '',
+    audience: optionalString(b.audience, 'audience', { max: 20 }) ?? '',
+    tone: optionalString(b.tone, 'tone', { max: 40 }) ?? '',
+    style: optionalString(b.style, 'style', { max: 40 }) ?? '',
+    forbidden: optionalString(b.forbidden, 'forbidden', { max: 200 }) ?? '',
+    targetWords: requireInt(b.targetWords ?? 200000, 'targetWords', { min: 5000, max: 2000000, fallback: 200000 }),
+    wordsPerChapter: requireInt(b.wordsPerChapter ?? 3000, 'wordsPerChapter', { min: 800, max: 12000, fallback: 3000 }),
+  }));
+});
+
+api.get('/api/novels/:id', (req, res) => sendJson(res, 200, novelService.detail(req.params.id)));
+
+api.delete('/api/novels/:id', async (req, res) => {
+  await novelService.removeBook(req.params.id);
+  sendJson(res, 200, { ok: true });
+});
+
+api.post('/api/novels/:id/bible', async (req, res) => sendJson(res, 200, await novelService.planBible(req.params.id)));
+
+api.post('/api/novels/:id/outline', async (req, res) => sendJson(res, 200, await novelService.planOutline(req.params.id)));
+
+api.post('/api/novels/:id/chapter', async (req, res) => {
+  const index = requireInt((req.body ?? {}).index, 'index', { min: 1, max: 500 });
+  sendJson(res, 200, await novelService.writeChapter(req.params.id, index));
+});
+
+api.get('/api/novels/:id/export', (req, res) => sendJson(res, 200, novelService.exportBook(req.params.id)));
 
 /* ---------------- 项目（用于保存与串联，非必需） ---------------- */
 api.get('/api/projects', async (req, res) => {

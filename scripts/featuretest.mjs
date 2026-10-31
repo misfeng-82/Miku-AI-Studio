@@ -861,6 +861,112 @@ await t('边界：deai rewrite 门禁线越界收敛到合法区间', async () =
   return `HTTP ${r.status}${r.status === 200 ? ` · target=${r.data.target}` : ''}`;
 });
 
+/* ---------------- 小说创作（设定集 → 章纲 → 逐章正文 → 导出） ---------------- */
+let novelId = null;
+
+await t('POST /api/novels 立项建书', async () => {
+  const r = await call('POST', '/api/novels', {
+    title: '渡口灯', genre: '悬疑', audience: '男频',
+    logline: '所有人都说那场船难是意外，只有他记得江上一盏没熄的灯。',
+    targetWords: 60000, wordsPerChapter: 3000,
+  });
+  is(r, 201, 'novel create');
+  truthy(r.data.book.id, '应返回 id');
+  eq(r.data.gates.length, 8, '设定门条数');
+  truthy(r.data.readiness.bibleReady === false, '刚建库不该算设定就绪');
+  novelId = r.data.book.id;
+  return `《${r.data.book.title}》· ${r.data.gates.filter((g) => g.ok).length}/8 门`;
+});
+
+await t('边界：建书缺 title 返回 422', async () => {
+  const r = await call('POST', '/api/novels', { genre: '悬疑' });
+  is(r, 422, '缺 title 应被拦');
+  return '缺 title 被拦';
+});
+
+await t('GET /api/novels 列表含新书', async () => {
+  const r = await call('GET', '/api/novels');
+  is(r, 200, 'novel list');
+  truthy(r.data.items.some((x) => x.id === novelId), '列表里应有刚建的书');
+  return `${r.data.items.length} 本`;
+});
+
+await t('POST /api/novels/:id/bible 设定集', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/bible`, {});
+  is(r, 200, 'novel bible');
+  truthy(r.data.bible.characters.length >= 3, '至少 3 个人物');
+  truthy(r.data.bible.world.length >= 3, '至少 3 条世界规则');
+  truthy(r.data.bible.promise.ending.length > 0, '应有结局方向');
+  return `${r.data.bible.characters.length} 人 · ${r.data.bible.world.length} 条规则`;
+});
+
+await t('边界：没排章纲就写正文返回 400', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 1 });
+  is(r, 400, '缺章纲应拒绝');
+  return '缺章纲被拦';
+});
+
+await t('POST /api/novels/:id/outline 章纲与伏笔', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/outline`, {});
+  is(r, 200, 'novel outline');
+  const chapters = r.data.outline.chapters;
+  truthy(chapters.length >= 6, `章数应 ≥6，实际 ${chapters.length}`);
+  eq(chapters.length, r.data.plan, '章数应与目标字数推算一致');
+  truthy(r.data.outline.foreshadow.length >= 2, '至少 2 条伏笔');
+  truthy(chapters.every((c) => c.goal && c.conflict && c.hook), '每章都要有目标/冲突/钩子');
+  const failed = r.data.gates.filter((g) => !g.ok);
+  eq(failed.length, 0, `设定门应全过，实际未过：${failed.map((g) => g.label).join('、')}`);
+  return `${chapters.length} 章 · ${r.data.outline.foreshadow.length} 条伏笔 · 8/8 门`;
+});
+
+await t('POST /api/novels/:id/chapter 写第 1 章（含扫描与六道单章门）', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 1 });
+  is(r, 200, 'novel chapter');
+  const ch = r.data.chapter;
+  truthy(ch.words >= 2000, `字数应接近目标，实际 ${ch.words}`);
+  truthy(typeof ch.scan.score === 'number', '应带 AI 痕迹分');
+  eq(r.data.gates.length, 6, '单章门条数');
+  const failed = r.data.gates.filter((g) => !g.ok).map((g) => g.label);
+  eq(failed.length, 0, `六道门应全过，实际未过：${failed.join('、')}`);
+  return `${ch.words} 字 · AI 痕迹 ${ch.scan.score} · 6/6 门`;
+});
+
+await t('边界：写不存在的章号返回 404', async () => {
+  // 100 在合法入参范围（1–500）内，但大纲只有几十章 —— 这是「查不到」，不是参数错误
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 100 });
+  is(r, 404, '大纲里没有的章号应 404');
+  return '大纲外章号被拦';
+});
+
+await t('边界：章号超出 1–500 返回 422', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 9999 });
+  is(r, 422, '越界入参应 422');
+  return '越界入参被拦';
+});
+
+await t('GET /api/novels/:id/export 导出全书', async () => {
+  const r = await call('GET', `/api/novels/${novelId}/export`);
+  is(r, 200, 'novel export');
+  truthy(r.data.text.includes('第1章'), '应含第一章');
+  truthy(r.data.text.includes('伏笔台账'), '应含伏笔台账');
+  truthy(r.data.chapters === 1, `已写章数应为 1，实际 ${r.data.chapters}`);
+  return `${r.data.chapters} 章 · ${r.data.words} 字 · ${r.data.filename}`;
+});
+
+await t('DELETE /api/novels/:id 删书（软删索引）', async () => {
+  const r = await call('DELETE', `/api/novels/${novelId}`);
+  is(r, 200, 'novel delete');
+  const list = await call('GET', '/api/novels');
+  truthy(!list.data.items.some((x) => x.id === novelId), '删后列表不应再有');
+  return '已从书目移除';
+});
+
+await t('边界：删除不存在的书返回 404', async () => {
+  const r = await call('DELETE', '/api/novels/not-a-real-id');
+  is(r, 404, '不存在的书应 404');
+  return '不存在的书被拦';
+});
+
 await t('POST /api/titles 爆款标题', async () => {
   const r = await call('POST', '/api/titles', { genre: '悬疑', keyword: '渡口', count: 8 });
   is(r, 200, 'titles');

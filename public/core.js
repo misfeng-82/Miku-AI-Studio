@@ -141,8 +141,11 @@ export const state = {
     fmt: 'short-drama', polishLine: '', titleGenre: '悬疑', titleKw: '', titleHook: '', titleCount: 12,
     // 去 AI 味：稿子与门禁线（门禁线 40 = 定稿）
     deaiText: '', deaiTarget: 40,
+    // 小说创作：立项表单
+    novelTitle: '', novelGenre: '悬疑', novelLogline: '', novelTarget: 200000, novelPer: 3000,
+    novelAudience: '男频', novelTone: '', novelForbidden: '',
   },
-  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null },
+  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null, novel: null },
   busy: {},
   sel: { lineChar: null },
 };
