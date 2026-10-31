@@ -195,6 +195,17 @@ for (const [key, load, expect] of withData) {
   }
 }
 
+// 写作台右栏三个页签都要能画（AI 面板里有预设 chips 与角色 chips）
+for (const panel of ['ai', 'memory', 'chapter']) {
+  try {
+    state.view = 'novel';
+    state.data.novel = { ...(state.data.novel ?? {}), panel };
+    ok(`novel（右栏 ${panel}）`, renderOne('novel'));
+  } catch (e) {
+    bad(`novel（右栏 ${panel}）`, e.message);
+  }
+}
+
 // 纯 meta 页也再验一次
 for (const key of ['home', 'engine']) {
   state.view = key;

@@ -423,7 +423,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack],[data-novelcompose],[data-aipreset],[data-aictx],[data-aichar],[data-noveltidy],[data-novelrestore]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -491,6 +491,43 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.novelsave !== undefined) { saveNovelNow(); return; }
   if (btn.dataset.novelcopych !== undefined) { novel.copyChapterText(); return; }
   if (btn.dataset.noveltrack !== undefined) { state.cfg.novelTrack = btn.dataset.noveltrack; save(); render(); return; }
+
+  // ---- AI 续写面板 ----
+  if (btn.dataset.novelcompose === 'next') {
+    run('novelCompose', () => novel.composeNext());
+    return;
+  }
+  if (btn.dataset.aipreset !== undefined) {
+    const ai = state.cfg.novelAi ?? {};
+    state.cfg.novelAi = { ...ai, preset: ai.preset === btn.dataset.aipreset ? '' : btn.dataset.aipreset };
+    save(); render(); return;
+  }
+  if (btn.dataset.aictx !== undefined) {
+    state.cfg.novelAi = { ...(state.cfg.novelAi ?? {}), ctx: Number(btn.dataset.aictx) };
+    save(); render(); return;
+  }
+  if (btn.dataset.aichar !== undefined) {
+    const ai = state.cfg.novelAi ?? {};
+    const name = btn.dataset.aichar;
+    const chars = ai.chars ?? [];
+    state.cfg.novelAi = { ...ai, chars: chars.includes(name) ? chars.filter((x) => x !== name) : [...chars, name] };
+    save(); render(); return;
+  }
+  if (btn.dataset.noveltidy !== undefined) {
+    run('novelCompose', async () => {
+      await saveNovelNow();          // 先把编辑器里的字存进去，再让服务端整理
+      await novel.tidyChapter();
+      render();
+    });
+    return;
+  }
+  if (btn.dataset.novelrestore !== undefined) {
+    run('novelCompose', async () => {
+      await novel.restoreChapter(btn.dataset.novelrestore);
+      render();
+    });
+    return;
+  }
   if (btn.dataset.titlegenre !== undefined) { state.cfg.titleGenre = btn.dataset.titlegenre; save(); render(); return; }
   // AI 剧本生成：写某一集（集数从按钮上带下来，闭包进 runner）；展开/收起某一集正文
   if (btn.dataset.genep !== undefined) { const ep = Number(btn.dataset.genep); run('genEp', () => RUNNERS.genEp(ep)); return; }
@@ -614,6 +651,11 @@ document.addEventListener('input', (e) => {
   if (e.target.matches('[data-noveltext]')) scheduleNovelSave();
 });
 document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-novelai]')) {
+    state.cfg.novelAi = { ...(state.cfg.novelAi ?? {}), instruction: e.target.value };
+    save();
+    return;
+  }
   if (e.target.matches('[data-novelchtitle]')) saveNovelNow();
   if (e.target.matches('[data-noveltitle]')) novel.setTitle(e.target.value).catch((err) => toast(err.message, 'err'));
   if (e.target.matches('[data-novelsetting]')) {

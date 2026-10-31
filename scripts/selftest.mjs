@@ -14,6 +14,7 @@ import { gateReport as scriptGates } from '../src/engine/script.mjs';
 import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
 import { bookGates, chapterGates, readiness, wordCount, punctuationCount } from '../src/engine/novelGates.mjs';
 import { tidyDialogue, tidyChapterBody } from '../src/engine/textClean.mjs';
+import { stripMarkdown, normalizePunct, smartTypeset, wordFreq, searchReplace, autoTidy } from '../src/engine/editorTools.mjs';
 import {
   analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
 } from '../src/engine/novelMemory.mjs';
@@ -1270,6 +1271,48 @@ t('字数口径：与「含标点字符数」有明显差额（这正是用户�
   const eff = wordCount(text);
   assert.ok(raw - eff >= 10, `差额应可观：raw=${raw} eff=${eff}`);
   assert.equal(punctuationCount(text), raw - eff + 0, '标点数应与差额一致');
+});
+
+
+/* ---- 编辑工具（移植墨笔六件套中的四件）---- */
+t('编辑工具：清理 Markdown 只留纯文本', () => {
+  assert.equal(stripMarkdown('## 标题'), '标题');
+  assert.equal(stripMarkdown('**加粗**和*斜体*'), '加粗和斜体');
+  assert.equal(stripMarkdown('[链接](http://x)'), '链接');
+  assert.equal(stripMarkdown('- 一项\n- 两项'), '一项\n两项');
+});
+
+t('编辑工具：统一中文标点，但不动小数点', () => {
+  assert.equal(normalizePunct('他说,"走吧."'), '他说，“走吧。”');
+  assert.equal(normalizePunct('圆周率 3.14 和 v2.0'), '圆周率 3.14 和 v2.0');
+  assert.equal(normalizePunct('等等...'), '等等……');
+});
+
+t('编辑工具：智能排版把多空行压成段间一行', () => {
+  assert.equal(smartTypeset('第一段。  \n\n\n第二段。   '), '第一段。\n\n第二段。');
+});
+
+t('编辑工具：查找替换用纯文本，不当正则', () => {
+  const r = searchReplace('a.b.c', '.', '·');
+  assert.equal(r.text, 'a·b·c');
+  assert.equal(r.count, 2);
+  const one = searchReplace('a.b.c', '.', '·', { all: false });
+  assert.equal(one.text, 'a·b.c');
+});
+
+t('编辑工具：高频词只出重复 2 次以上的词', () => {
+  // 只统计 2–4 字片段（单字不统计），与墨笔口径一致
+  const top = wordFreq('忽然，他忽然想起那口井。忽然又忘了。', 10);
+  assert.ok(top.some((x) => x.word === '忽然' && x.count === 3), `应统计到「忽然」3 次：${JSON.stringify(top.slice(0, 3))}`);
+  assert.ok(top.every((x) => x.count >= 2), '不应出现只出现一次的词');
+});
+
+t('编辑工具：一键整理会同时清 MD + 统一标点 + 排版', () => {
+  const { text, changed } = autoTidy('## 标题\n\n**正文**，"说话."\n\n\n下一段。');
+  assert.ok(changed);
+  assert.ok(!text.includes('#'), '不应残留 #');
+  assert.ok(!text.includes('**'), '不应残留 **');
+  assert.ok(text.includes('“'), '引号应转中文');
 });
 
 for (const [name, fn] of asyncTests) {

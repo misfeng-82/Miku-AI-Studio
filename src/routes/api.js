@@ -1,7 +1,7 @@
 import { Router, sendJson } from '../http/router.js';
 import { logger } from '../logger.js';
 import * as projects from '../repo/projectRepo.js';
-import { requireString, requireInt, requireEnum, optionalString, conflict, badRequest } from '../errors.js';
+import { requireString, requireInt, requireEnum, requireArray, optionalString, conflict, badRequest } from '../errors.js';
 import { STYLE_PRESETS, DEFAULT_STYLE_ID, stylePromptSuffix, styleGuardrail } from '../assets/stylePresets.js';
 import { PROMPT_TEMPLATES, DESCRIPTION_DIMENSIONS, listTemplates, fillTemplate } from '../assets/promptLibrary.js';
 import { FRAMEWORKS, DEFAULT_FRAMEWORK_ID, frameworkSpringPlan, springLabel, CARRY_OVER_MODES } from '../assets/storyFrameworks.js';
@@ -534,6 +534,8 @@ api.post('/api/novels', async (req, res) => {
   }));
 });
 
+api.get('/api/novels/presets', (req, res) => sendJson(res, 200, { items: studio.AI_PRESETS }));
+
 api.get('/api/novels/:id', (req, res) => sendJson(res, 200, studio.detail(req.params.id)));
 
 api.patch('/api/novels/:id', async (req, res) => {
@@ -574,7 +576,18 @@ api.post('/api/novels/:id/chapters/:cid/compose', async (req, res) => {
     mode: b.mode === 'draft' ? 'draft' : 'continue',
     words: b.words === undefined ? 1200 : requireInt(b.words, 'words', { min: 200, max: 8000, fallback: 1200 }),
     instruction: optionalString(b.instruction, 'instruction', { max: 500 }) ?? '',
+    preset: optionalString(b.preset, 'preset', { max: 20 }) ?? '',
+    ctx: b.ctx === undefined ? 1 : requireInt(b.ctx, 'ctx', { min: 0, max: 5, fallback: 1 }),
+    chars: requireArray(b.chars ?? [], 'chars', { max: 12 }).map((x) => String(x)),
   }));
+});
+
+api.post('/api/novels/:id/chapters/:cid/tidy', async (req, res) =>
+  sendJson(res, 200, await studio.tidyChapter(req.params.id, req.params.cid)));
+
+api.post('/api/novels/:id/chapters/:cid/restore', async (req, res) => {
+  const ts = requireInt((req.body ?? {}).ts, 'ts', { min: 1, max: Number.MAX_SAFE_INTEGER });
+  sendJson(res, 200, await studio.restoreChapter(req.params.id, req.params.cid, ts));
 });
 
 api.get('/api/novels/:id/chapters/:cid/scan', (req, res) =>

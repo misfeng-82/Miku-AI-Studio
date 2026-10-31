@@ -968,6 +968,50 @@ await t('DELETE 删除章节', async () => {
   return '已删 1 章';
 });
 
+await t('POST tidy：一键整理（清 MD + 统一标点 + 排版）', async () => {
+  const created = await call('POST', '/api/novels', { title: '整理测试书' });
+  const id = created.data.book.id;
+  novelCleanup.push(id);
+  const added = await call('POST', `/api/novels/${id}/chapters`, { title: '整理' });
+  const cid = added.data.chapter.id;
+  await call('PUT', `/api/novels/${id}/chapters/${cid}`, { text: '## 标题\n\n**正文**,"说话."\n\n\n下一段。' });
+  const r = await call('POST', `/api/novels/${id}/chapters/${cid}/tidy`, {});
+  is(r, 200, 'tidy');
+  const text = r.data.chapter.text;
+  truthy(!text.includes('#'), '不应残留 Markdown 标题号');
+  truthy(!text.includes('**'), '不应残留加粗符号');
+  truthy(text.includes('“'), '引号应统一为中文');
+  truthy(!/\n{3,}/.test(text), '不应有连续空行');
+  return `${r.data.chapter.words} 字`;
+});
+
+await t('POST compose：带续写预设与关联前文', async () => {
+  const list = await call('GET', '/api/novels');
+  const nid = list.data.items.find((x) => x.title === '整理测试书')?.id;
+  const full = await call('GET', `/api/novels/${nid}`);
+  const cid = full.data.book.chapters[0].id;
+  const before = full.data.book.chapters[0].words;
+  const r = await call('POST', `/api/novels/${nid}/chapters/${cid}/compose`, {
+    mode: 'continue', words: 600, preset: 'conflict', ctx: 1,
+  });
+  is(r, 200, 'compose with preset');
+  truthy(r.data.chapter.words > before, '续写后应更长');
+  return `${before} → ${r.data.chapter.words} 字（冲突升级）`;
+});
+
+await t('POST restore：时光机还原到续写前', async () => {
+  const list = await call('GET', '/api/novels');
+  const nid = list.data.items.find((x) => x.title === '整理测试书')?.id;
+  const full = await call('GET', `/api/novels/${nid}`);
+  const ch = full.data.book.chapters[0];
+  truthy(Array.isArray(ch.history) && ch.history.length >= 1, 'AI 覆盖前应留快照');
+  const snap = ch.history[ch.history.length - 1];
+  const r = await call('POST', `/api/novels/${nid}/chapters/${ch.id}/restore`, { ts: snap.ts });
+  is(r, 200, 'restore');
+  eq(r.data.chapter.text, snap.text, '应还原到快照内容');
+  return `还原到 ${new Date(snap.ts).toISOString().slice(11, 19)}`;
+});
+
 await t('PATCH 修改书名', async () => {
   const r = await call('PATCH', `/api/novels/${novelId}`, { title: '渡口灯（改）' });
   is(r, 200, 'patch book');

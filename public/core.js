@@ -146,6 +146,8 @@ export const state = {
     novelAudience: '男频',
     // 小说写作台：建书表单（其余状态都在 state.data.novel 里，不落 localStorage）
     novelTrack: 'web-novel', novelPremise: '',
+    // AI 续写面板：预设 / 补充要求 / 关联前几章 / 指定角色
+    novelAi: { preset: '', instruction: '', ctx: 1, chars: [] },
   },
   data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null, novel: null },
   busy: {},

@@ -17,6 +17,7 @@ import { wordCount } from '../engine/novelGates.mjs';
 import { analyzeChapter, buildBookMemory, memoryToPrompt } from '../engine/novelMemory.mjs';
 import { tidyChapterBody } from '../engine/textClean.mjs';
 import { analyzeText } from '../engine/deaiScan.mjs';
+import { autoTidy } from '../engine/editorTools.mjs';
 import { CHAPTER_SYSTEM } from '../assets/novelPrompts.js';
 
 /* ============================ 书 ============================ */
@@ -119,6 +120,34 @@ export async function deleteChapter(id, chapterId) {
 const CONTINUE_RULES = `从已有正文的最后一句接着写，不要把前面复述一遍，也不要重写开头。
 保持同一场景与同一条叙事线；不要在结尾做总结。`;
 
+/** 续写要求预设（对应墨笔的 AI_PRESETS） */
+export const AI_PRESETS = Object.freeze([
+  { k: 'conflict', t: '冲突升级', d: '加大矛盾，让局势更紧张' },
+  { k: 'detail', t: '细节渲染', d: '补充环境、动作、心理细节' },
+  { k: 'fast', t: '节奏加快', d: '砍掉冗余，推进剧情' },
+  { k: 'hook', t: '结尾埋钩', d: '在段落结尾留下悬念' },
+  { k: 'calm', t: '压低节奏', d: '收一收，写氛围与关系' },
+]);
+
+const PRESET_TEXT = {
+  conflict: '这一段要加大矛盾：让阻力变强、代价变贵，人物必须当场做出选择。',
+  detail: '这一段要多给具体细节：环境、动作、身体感受，少写概括性叙述。',
+  fast: '这一段要加快节奏：砍掉铺垫与解释，直接推进事件，句子可短。',
+  hook: '这一段结尾要留钩子：停在一个动作或一句没说完的话上，不要收束。',
+  calm: '这一段要压低节奏：写氛围、关系与没说出口的话，动作变少。',
+};
+
+/** 覆盖正文前留一份快照（墨笔的「时光机」） */
+const HIST_LIMIT = 20;
+function pushHistory(chapter, label) {
+  if (!chapter?.text?.trim()) return;
+  if (!Array.isArray(chapter.history)) chapter.history = [];
+  const last = chapter.history[chapter.history.length - 1];
+  if (last && last.text === chapter.text) return;   // 内容没变不重复记
+  chapter.history.push({ ts: Date.now(), text: chapter.text, title: chapter.title, label: label || '' });
+  if (chapter.history.length > HIST_LIMIT) chapter.history.shift();
+}
+
 const DRAFT_RULES = `按「这一章要写什么」起头，直接进入动作、对话或异常，不要做背景介绍。`;
 
 /**
@@ -134,16 +163,32 @@ export async function composeChapter(id, chapterId, opts = {}) {
   const words = Math.min(8000, Math.max(200, Number(opts.words) || 1200));
   const instruction = String(opts.instruction ?? '').trim();
 
-  const prevIdx = chapter.index - 1;
-  const prev = (book.chapters ?? []).find((c) => c.index === prevIdx) ?? null;
+  // 续写要求预设：宁可让模型看到一句具体的「这一段要干什么」，也不要只给一个标签
+  const preset = PRESET_TEXT[String(opts.preset ?? '')] ?? '';
+  const ctx = Math.min(5, Math.max(0, Number(opts.ctx) || 0));      // 关联前几章
+  const pickedChars = Array.isArray(opts.chars) ? opts.chars.map(String).slice(0, 8) : [];
+
+  const sorted = [...(book.chapters ?? [])].sort((a, b) => a.index - b.index);
+  const pos = sorted.findIndex((c) => c.id === chapter.id);
+  const prev = pos > 0 ? sorted[pos - 1] : null;
+  // 「关联前文」按用户选的章数带最近几章的结尾片段（默认 1 章），控制长度与消耗
+  const ctxChapters = ctx > 0 ? sorted.slice(Math.max(0, pos - ctx), pos) : (prev ? [prev] : []);
+  const ctxText = ctxChapters
+    .map((c) => (c.text ? `第${c.index}章结尾：${c.text.slice(-600)}` : ''))
+    .filter(Boolean)
+    .join('\n\n');
   const memoryText = memoryToPrompt(book.memory ?? buildBookMemory(book.chapters ?? []), prev, {});
 
   const settings = book.settings ?? {};
   const user = `【作品】《${book.title}》${book.genre ? `｜${book.genre}` : ''}${book.audience ? `｜${book.audience}` : ''}
 ${settings.premise ? `一句话故事：${settings.premise}` : ''}
 
+${preset ? `【这一段的要求】${preset}` : ''}
+
 【人物（按 voice 说话，不得新造名字）】
-${(settings.characters ?? []).map((c) => `- ${c.name}（${c.role || '角色'}）：要 ${c.want || '—'}；缺 ${c.flaw || '—'}；说话 ${c.voice || '—'}`).join('\n') || '（暂无人物表，按前文自行把握，不要起新名字）'}
+${(pickedChars.length
+    ? (settings.characters ?? []).filter((c) => pickedChars.includes(c.name))
+    : (settings.characters ?? [])).map((c) => `- ${c.name}（${c.role || '角色'}）：要 ${c.want || '—'}；缺 ${c.flaw || '—'}；说话 ${c.voice || '—'}`).join('\n') || '（暂无人物表，按前文自行把握，不要起新名字）'}
 
 【世界规则（不解释，只遵守）】
 ${(settings.world ?? []).map((w) => `- ${w.rule}${w.cost ? `（代价：${w.cost}）` : ''}`).join('\n') || '（无）'}
@@ -151,6 +196,7 @@ ${(settings.world ?? []).map((w) => `- ${w.rule}${w.cost ? `（代价：${w.cost
 【连续性记忆】
 ${memoryText || '（这是第一章，没有前情）'}
 
+${ctxText ? `【前文结尾（最近 ${ctxChapters.length} 章）】\n${ctxText}\n` : ''}
 【本章】第 ${chapter.index} 章《${chapter.title}》
 ${settings.outline?.find((o) => o.index === chapter.index)?.goal ? `本章目标：${settings.outline.find((o) => o.index === chapter.index).goal}` : ''}
 ${instruction ? `作者要求：${instruction}` : ''}
@@ -169,6 +215,9 @@ __PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words })
   const text = mode === 'continue' && chapter.text
     ? `${chapter.text.trimEnd()}\n\n${clean}`
     : clean;
+
+  // 覆盖前留一份（起草会整段替换空章，续写是追加——追加也留，方便整段回退）
+  pushHistory(chapter, mode === 'draft' ? 'AI 起草前' : 'AI 续写前');
 
   chapter.text = text;
   chapter.words = wordCount(text);
@@ -190,6 +239,44 @@ export function scanChapter(id, chapterId) {
   if (!chapter) throw notFound(`章节 ${chapterId} 不存在`);
   const report = analyzeText(chapter.text ?? '');
   return { report };
+}
+
+/**
+ * 一键整理：清 Markdown 符号 → 统一中文标点 → 智能排版。
+ * 纯本地、不动字词；改完留一份历史，后悔可还原。
+ */
+export async function tidyChapter(id, chapterId) {
+  const book = repo.getNovel(id);
+  const chapter = (book.chapters ?? []).find((c) => c.id === chapterId);
+  if (!chapter) throw notFound(`章节 ${chapterId} 不存在`);
+  const r = autoTidy(chapter.text ?? '');
+  if (!r.changed) return { chapter, changed: false };
+  pushHistory(chapter, '整理排版前');
+  chapter.text = r.text;
+  chapter.words = wordCount(chapter.text);
+  chapter.updatedAt = new Date().toISOString();
+  chapter.mem = analyzeChapter(chapter.title, chapter.text, { cast: book.settings?.characters ?? [] });
+  book.memory = buildBookMemory(book.chapters ?? []);
+  await repo.saveNovel(book);
+  return { chapter, changed: true };
+}
+
+/** 时光机：把某一章的正文还原到历史版本（当前内容也先留一份） */
+export async function restoreChapter(id, chapterId, ts) {
+  const book = repo.getNovel(id);
+  const chapter = (book.chapters ?? []).find((c) => c.id === chapterId);
+  if (!chapter) throw notFound(`章节 ${chapterId} 不存在`);
+  const snap = (chapter.history ?? []).find((h) => Number(h.ts) === Number(ts));
+  if (!snap) throw notFound('没有这个历史版本');
+  pushHistory(chapter, '还原前');
+  chapter.text = snap.text;
+  chapter.title = snap.title || chapter.title;
+  chapter.words = wordCount(chapter.text);
+  chapter.updatedAt = new Date().toISOString();
+  chapter.mem = analyzeChapter(chapter.title, chapter.text, { cast: book.settings?.characters ?? [] });
+  book.memory = buildBookMemory(book.chapters ?? []);
+  await repo.saveNovel(book);
+  return { chapter };
 }
 
 export function exportBook(id) {

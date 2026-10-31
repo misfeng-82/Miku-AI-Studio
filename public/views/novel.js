@@ -7,6 +7,19 @@
  */
 import { state, api, esc, ICONS, busyBtn, toast, copyText, download } from '../core.js';
 
+const AI_PRESETS = [
+  { k: 'conflict', t: '冲突升级', d: '加大矛盾，让局势更紧张' },
+  { k: 'detail', t: '细节渲染', d: '补充环境、动作、心理细节' },
+  { k: 'fast', t: '节奏加快', d: '砍掉冗余，推进剧情' },
+  { k: 'hook', t: '结尾埋钩', d: '在段落结尾留下悬念' },
+  { k: 'calm', t: '压低节奏', d: '收一收，写氛围与关系' },
+];
+
+const aiState = () => {
+  if (!state.cfg.novelAi) state.cfg.novelAi = { preset: '', instruction: '', ctx: 1, chars: [] };
+  return state.cfg.novelAi;
+};
+
 const TRACKS = [
   { key: 'web-novel', name: '网文', unit: '章' },
   { key: 'short', name: '短篇', unit: '节' },
@@ -123,6 +136,61 @@ function memoryPanel(b) {
   </div>`;
 }
 
+/**
+ * AI 续写面板（对应墨笔的右侧「AI 续写」页签）
+ * 续写要求预设 + 具体要求 + 关联前几章 + 指定角色；参数随请求发给服务端。
+ */
+function aiPanel(b, ch) {
+  const ai = aiState();
+  const cast = b.settings?.characters ?? [];
+  const written = (b.chapters ?? []).filter((c) => c.text).length;
+
+  return `<div class="card card-tight">
+    <div class="fl" style="margin-bottom:8px">写到哪儿</div>
+    <div class="chip-row">
+      <button class="chip active" data-novelcompose="continue">续写当前章</button>
+      <button class="chip" data-novelcompose="next">写下一章</button>
+    </div>
+
+    <div class="fl" style="margin:14px 0 8px">续写要求</div>
+    <div class="chip-row">
+      ${AI_PRESETS.map((p) => `<button class="chip ${ai.preset === p.k ? 'active' : ''}" data-aipreset="${p.k}" title="${esc(p.d)}">${esc(p.t)}</button>`).join('')}
+    </div>
+    <textarea rows="3" data-novelai="instruction" placeholder="具体要求：要发生什么、不能出现什么、语气与节奏……" style="margin-top:8px">${esc(ai.instruction)}</textarea>
+
+    <div class="fl" style="margin:14px 0 8px">关联前文</div>
+    <div class="chip-row">
+      ${[0, 1, 3, 5].map((n) => `<button class="chip ${Number(ai.ctx) === n ? 'active' : ''}" data-aictx="${n}" ${n > written ? 'disabled title="前面还没有这么多章"' : ''}>${n === 0 ? '不关联' : `最近 ${n} 章`}</button>`).join('')}
+    </div>
+
+    ${cast.length ? `<div class="fl" style="margin:14px 0 8px">提及角色</div>
+      <div class="chip-row">${cast.map((c) => `<button class="chip ${(ai.chars ?? []).includes(c.name) ? 'active' : ''}" data-aichar="${esc(c.name)}">${esc(c.name)}</button>`).join('')}</div>
+      <div class="muted" style="font-size:10px;margin-top:6px">点亮只把该角色设定发给模型；不点亮则发全部人物。</div>` : ''}
+
+    <div class="actions" style="margin-top:14px">${busyBtn('novelCompose', '开始 AI 续写', 'wand')}</div>
+    <div class="muted" style="font-size:10px;margin-top:6px">续写接在正文末尾；起草只对空章生效。</div>
+  </div>`;
+}
+
+/** 时光机：AI 覆盖前留的版本，可还原 */
+function historyPanel(ch) {
+  const hist = [...(ch?.history ?? [])].reverse();
+  if (!hist.length) {
+    return `<div class="card card-tight"><div class="fl" style="margin-bottom:6px">时光机</div>
+      <div class="muted" style="font-size:11px;line-height:1.7">AI 续写 / 起草 / 整理排版之前会自动留一份快照，这里可以看到并还原。</div></div>`;
+  }
+  return `<div class="card card-tight">
+    <div class="fl" style="margin-bottom:8px">时光机（${hist.length} 个版本）</div>
+    <div class="rows" style="max-height:240px;overflow:auto">${hist.map((h) => `<div class="row" style="grid-template-columns:1fr auto;align-items:center">
+      <div style="min-width:0">
+        <div class="row-title" style="font-size:11px">${esc(new Date(h.ts).toLocaleString('zh-CN', { hour12: false }))}</div>
+        <div class="row-sub">${h.label ? esc(h.label) : '手动版本'} · ${(h.text || '').replace(/\s/g, '').length} 字符</div>
+      </div>
+      <button class="btn btn-sm" data-novelrestore="${h.ts}">还原</button>
+    </div>`).join('')}</div>
+  </div>`;
+}
+
 function chapterPanel(ch) {
   const rep = state.data.novel?.scan?.report;
   if (!ch) return '';
@@ -136,8 +204,9 @@ function chapterPanel(ch) {
     ${rep?.ok ? `<div style="margin-top:10px">${rep.dimensions.slice(0, 6).map((d) => `<div class="bar-row">
       <span class="bl">${esc(d.label)}</span>
       <div class="bar-track"><span class="bar-fill ${d.penalty >= 0.7 ? 'rose' : d.penalty >= 0.35 ? 'amber' : 'teal'}" style="width:${Math.round(d.penalty * 100)}%"></span></div>
-      <span class="bv">${d.penalty.toFixed(2)}</span></div>`).join('')}</div>` : '<div class="muted" style="font-size:11px;margin-top:8px">点下方「扫本章」看 13 维 AI 痕迹。</div>'}
-  </div>`;
+      <span class="bv">${d.penalty.toFixed(2)}</span></div>`).join('')}</div>` : '<div class="muted" style="font-size:11px;margin-top:8px">点工具栏「扫本章」看 13 维 AI 痕迹。</div>'}
+  </div>
+  ${historyPanel(ch)}`;
 }
 
 function workbench(b) {
@@ -178,6 +247,7 @@ function workbench(b) {
           ${busyBtn('novelCompose', '续写', 'pen')}
           ${busyBtn('novelDraft', '起草本章', 'spark')}
           ${busyBtn('novelScan', '扫本章（免费）', 'radar')}
+          <button class="btn" data-noveltidy title="清 Markdown 符号 + 统一中文标点 + 智能排版（本地，不花钱）">${ICONS.wand}整理排版</button>
           <button class="btn" data-novelcopych>${ICONS.copy}复制本章</button>
           <button class="btn" data-novelsave>${ICONS.check}保存</button>
           <span class="muted" style="font-size:10.5px;margin-left:auto">续写接在正文末尾，不覆盖你写的</span>
@@ -186,11 +256,13 @@ function workbench(b) {
 
       <aside class="wb-right">
         <div class="wb-tabs">
-          ${[['settings', '设定'], ['memory', '记忆'], ['chapter', '本章']].map(([k, n]) =>
+          ${[['settings', '设定'], ['ai', '续写'], ['memory', '记忆'], ['chapter', '本章']].map(([k, n]) =>
             `<button class="wb-tab ${panel === k ? 'is-on' : ''}" data-novelpanel="${k}">${n}</button>`).join('')}
         </div>
         <div class="wb-panel">
-          ${panel === 'settings' ? settingsPanel(b) : panel === 'memory' ? memoryPanel(b) : chapterPanel(ch)}
+          ${panel === 'settings' ? settingsPanel(b)
+    : panel === 'ai' ? aiPanel(b, ch)
+      : panel === 'memory' ? memoryPanel(b) : chapterPanel(ch)}
         </div>
       </aside>
     </div>
@@ -239,7 +311,12 @@ export const runners = {
   async novelCompose() {
     const b = book(); const ch = cur();
     if (!b || !ch) return toast('先选一章', 'warn');
-    const r = await api.novelCompose(b.id, ch.id, { mode: 'continue', words: 1200, instruction: '' });
+    const ai = aiState();
+    const r = await api.novelCompose(b.id, ch.id, {
+      mode: 'continue', words: 1200,
+      instruction: ai.instruction || '', preset: ai.preset || '',
+      ctx: Number(ai.ctx) || 0, chars: ai.chars ?? [],
+    });
     state.data.novel = {
       ...(state.data.novel ?? {}),
       book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)), memory: r.memory },
@@ -251,7 +328,11 @@ export const runners = {
     const b = book(); const ch = cur();
     if (!b || !ch) return toast('先选一章', 'warn');
     if (String(ch.text || '').trim()) return toast('这一章已有正文：用「续写」接着写；要重写先清空', 'warn');
-    const r = await api.novelCompose(b.id, ch.id, { mode: 'draft', words: 1200, instruction: '' });
+    const ai = aiState();
+    const r = await api.novelCompose(b.id, ch.id, {
+      mode: 'draft', words: 1200,
+      instruction: ai.instruction || '', preset: ai.preset || '', ctx: Number(ai.ctx) || 0,
+    });
     state.data.novel = {
       ...(state.data.novel ?? {}),
       book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)), memory: r.memory },
@@ -385,6 +466,42 @@ export async function deleteBook(id, title) {
   await backToShelf();
   toast(`已移除《${title}》`);
   return true;
+}
+
+/** 一键整理（服务端做，纯本地） */
+export async function tidyChapter() {
+  const b = book(); const ch = cur();
+  if (!b || !ch) return;
+  if (!(ch.text ?? '').trim()) return toast('这一章还没有正文', 'warn');
+  const r = await api.novelTidy(b.id, ch.id);
+  if (!r.changed) return toast('排版已经很整齐，没有可改的');
+  state.data.novel = { ...(state.data.novel ?? {}), book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)) } };
+  toast('已整理：清 Markdown、统一标点、重排段落');
+}
+
+/** 还原到某个历史版本 */
+export async function restoreChapter(ts) {
+  const b = book(); const ch = cur();
+  if (!b || !ch) return;
+  if (!confirm('还原到这个版本？当前内容会先留一份，可再还原回来。')) return;
+  const r = await api.novelRestore(b.id, ch.id, ts);
+  state.data.novel = { ...(state.data.novel ?? {}), book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)) } };
+  toast('已还原');
+}
+
+/** 写下一章：建章 + 起草一气呵成 */
+export async function composeNext() {
+  const b = book();
+  if (!b) return;
+  const added = await api.novelAddChapter(b.id, {});
+  const ai = aiState();
+  const r = await api.novelCompose(b.id, added.chapter.id, {
+    mode: 'draft', words: 1200,
+    instruction: ai.instruction || '', preset: ai.preset || '', ctx: Number(ai.ctx) || 0,
+  });
+  const full = await api.novel(b.id);
+  state.data.novel = { ...(state.data.novel ?? {}), book: full.book, activeId: r.chapter.id, panel: 'ai' };
+  toast(`第 ${r.chapter.index} 章起草完成：${r.chapter.words} 字`);
 }
 
 export async function copyChapterText() {
