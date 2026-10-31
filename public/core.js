@@ -142,12 +142,10 @@ export const state = {
     // 去 AI 味：稿子与门禁线（门禁线 40 = 定稿）
     deaiText: '', deaiTarget: 40,
     // 小说创作：立项表单
-    novelTitle: '', novelGenre: '悬疑', novelLogline: '', novelTarget: 200000, novelPer: 3000,
-    novelAudience: '男频', novelTone: '', novelForbidden: '',
-    // 目标章节：章号/标题/这一章要写什么/目标字数/自由写作（默认不设限）
-    novelChapter: 1, novelChapterTitle: '', novelBrief: '', novelWordTarget: '', novelFreedom: true,
-    // 字数策略：strict = 必须落在目标 95%–115%（默认）；loose = 只报数
-    novelWordPolicy: 'strict',
+    novelTitle: '', novelGenre: '', novelTarget: 200000,
+    novelAudience: '男频',
+    // 小说写作台：建书表单（其余状态都在 state.data.novel 里，不落 localStorage）
+    novelTrack: 'web-novel', novelPremise: '',
   },
   data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null, novel: null },
   busy: {},

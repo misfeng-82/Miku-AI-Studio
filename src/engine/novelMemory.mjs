@@ -208,23 +208,32 @@ export function analyzeChapter(title, text, opts = {}) {
   };
 }
 
-/** 全书记忆：逐章要点汇成脉络 + 去重后的人物/地点 + 伏笔池 + 时间线 */
+/**
+ * 全书记忆：逐章要点汇成脉络 + 去重后的人物/地点 + 伏笔池 + 时间线。
+ *
+ * 章节上的记忆字段历史上有两个名字：老的生成链路写 `chapter.memory`，
+ * 现在的写作台写 `chapter.mem`。这里两个都认——否则写作台上「全书记忆」永远是空的。
+ */
 export function buildBookMemory(chapters = []) {
-  const done = chapters.filter((c) => c?.memory?.chars > 0);
+  const memOf = (c) => c?.memory ?? c?.mem ?? null;
+  const done = (chapters ?? []).filter((c) => {
+    const m = memOf(c);
+    return m && (m.chars ?? 0) > 0;
+  });
   return {
-    arc: done.map((c) => ({ no: c.index, title: c.title, point: (c.memory.points[0] || '').slice(0, 50) })),
-    characters: [...new Set(done.flatMap((c) => c.memory.characters))].slice(0, 20),
-    places: [...new Set(done.flatMap((c) => c.memory.places))].slice(0, 15),
+    arc: done.map((c) => ({ no: c.index, title: c.title, point: ((memOf(c).points ?? [])[0] ?? '').slice(0, 50) })),
+    characters: [...new Set(done.flatMap((c) => memOf(c).characters ?? []))].slice(0, 20),
+    places: [...new Set(done.flatMap((c) => memOf(c).places ?? []))].slice(0, 15),
     keywords: (() => {
       const f = new Map();
-      done.forEach((c) => c.memory.keywords.forEach((k) => f.set(k, (f.get(k) || 0) + 1)));
+      done.forEach((c) => (memOf(c).keywords ?? []).forEach((k) => f.set(k, (f.get(k) || 0) + 1)));
       return [...f.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k]) => k);
     })(),
-    foreshadow: done.flatMap((c) => c.memory.foreshadow.map((f) => ({ no: c.index, f }))),
-    timeline: done.flatMap((c) => c.memory.timeline.map((t) => ({ no: c.index, t }))),
+    foreshadow: done.flatMap((c) => (memOf(c).foreshadow ?? []).map((f) => ({ no: c.index, f }))),
+    timeline: done.flatMap((c) => (memOf(c).timeline ?? []).map((t) => ({ no: c.index, t }))),
     writtenChapters: done.length,
-    totalChapters: chapters.length,
-    totalChars: done.reduce((n, c) => n + c.memory.chars, 0),
+    totalChapters: (chapters ?? []).length,
+    totalChars: done.reduce((n, c) => n + (memOf(c).chars ?? 0), 0),
   };
 }
 

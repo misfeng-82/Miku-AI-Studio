@@ -4,42 +4,43 @@ import { notFound } from '../errors.js';
 import { wordCount } from '../engine/novelGates.mjs';
 
 /**
- * 小说作品仓（单本一文件 + 一份索引）
+ * 小说作品仓（照墨笔的模型重做）
  *
- * 为什么和 projectRepo 分开存：
- *   项目（project）是「一次创作流程的容器」，带 crawl/script/storyboard 这些阶段；
- *   小说是「一本能写几十万字的书」，有自己的章节序列、伏笔台账与设定集。
- *   硬塞进同一个索引，作品库里会一半是剧本一半是小说，列表语义就脏了。
+ * 一本书 =
+ *   { id, title, track, targetWords,
+ *     settings: { premise, characters[], world[], outline[] },   // 设定（可空，边写边补）
+ *     chapters: [{ id, index, title, text, words, mem, updatedAt }],
+ *     memory: { arc[], characters[], places[], foreshadow[], timeline[] },
+ *     createdAt, updatedAt }
  *
- * 为什么一本一个文件而不是一个大数组：
- *   写到二十万字时单本 JSON 就有几百 KB，任何一次保存都重写整个数组会越来越慢；
- *   一本一文件只重写被改的那本。
+ * 与上一版的差别：上一版把书当「生成流水线的产物」（设定门 → 章纲 → 逐章生成），
+ * 这一版把书当「正在写的手稿」——章节可以先有正文再补设定，也可以只写一章就导出。
+ * 写作软件本来就该这样（墨笔就是这么做的）。
  */
 const store = new JsonStore();
 const INDEX_KEY = 'novel-index';
-
-// 和 projectRepo 同样的理由：脏 id 是「查不到」，不是服务器错误
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-
-const DEFAULT_TARGET = 200000;
-const DEFAULT_PER_CHAPTER = 3000;
 
 export function createNovel(input = {}) {
   const now = new Date().toISOString();
   const book = {
     id: randomUUID(),
-    title: String(input.title ?? '').trim() || '未命名长篇',
+    schema: 'studio-v2',
+    title: String(input.title ?? '').trim() || '未命名作品',
+    // 轨道：网文 / 短篇 / 剧本（墨笔的三条）
+    track: ['web-novel', 'short', 'screenplay'].includes(input.track) ? input.track : 'web-novel',
     genre: String(input.genre ?? '').trim(),
-    logline: String(input.logline ?? '').trim(),
     audience: String(input.audience ?? '').trim() || '男频',
-    tone: String(input.tone ?? '').trim(),
     style: String(input.style ?? '').trim(),
-    forbidden: String(input.forbidden ?? '').trim(),
-    targetWords: Number(input.targetWords) || DEFAULT_TARGET,
-    wordsPerChapter: Number(input.wordsPerChapter) || DEFAULT_PER_CHAPTER,
-    bible: null,
-    outline: null,
+    targetWords: Number(input.targetWords) || 200000,
+    settings: {
+      premise: String(input.premise ?? '').trim(),
+      characters: [],
+      world: [],
+      outline: [],
+    },
     chapters: [],
+    memory: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -47,7 +48,6 @@ export function createNovel(input = {}) {
   return book;
 }
 
-/** 建完立刻进索引：调用方随后查列表必须能看到（与 projectRepo 同一处坑） */
 export async function indexNovel(book) {
   await store.update(INDEX_KEY, (idx) => ({
     items: [...idx.items.filter((it) => it.id !== book.id), { id: book.id, title: book.title, createdAt: book.createdAt }],
@@ -55,33 +55,13 @@ export async function indexNovel(book) {
 }
 
 export function getNovel(id) {
-  if (typeof id !== 'string' || !ID_RE.test(id)) throw notFound(`小说 ${id} 不存在`);
+  if (typeof id !== 'string' || !ID_RE.test(id)) throw notFound(`作品 ${id} 不存在`);
   try {
-    return migrateWordCount(store.read(`novel-${id}`));
+    return migrate(store.read(`novel-${id}`));
   } catch (err) {
-    if (err.code === 'NOT_FOUND') throw notFound(`小说 ${id} 不存在`);
+    if (err.code === 'NOT_FOUND') throw notFound(`作品 ${id} 不存在`);
     throw err;
   }
-}
-
-/**
- * 旧稿的字数是「含标点」的算法（4500 字里可能有一千个标点）。
- * 这里在读的时候按新口径重算一遍并打标记，下次保存时自然落盘。
- * 不做成阻塞式迁移脚本：书是用户数据，能就地算就别动文件。
- */
-function migrateWordCount(book) {
-  if (!book || book.countV2) return book;
-  for (const c of book.chapters ?? []) {
-    if (c?.text) {
-      c.words = wordCount(c.text);
-      c.countV2 = true;
-    }
-  }
-  if (book.memory) {
-    book.memory.totalChars = (book.chapters ?? []).reduce((n, c) => n + (c.words ?? 0), 0);
-  }
-  book.countV2 = true;
-  return book;
 }
 
 export async function saveNovel(book) {
@@ -96,7 +76,6 @@ export async function saveNovel(book) {
 export async function deleteNovel(id) {
   getNovel(id);
   await store.update(INDEX_KEY, (idx) => ({ items: idx.items.filter((it) => it.id !== id) }), { items: [] });
-  // 只摘索引、不删正文文件：误删可找回，与项目仓的软删除保持一致
   return true;
 }
 
@@ -106,35 +85,66 @@ export function listNovels() {
   for (const it of idx.items) {
     try {
       out.push(summary(getNovel(it.id)));
-    } catch {
-      // 索引里有、文件没了（手工删过 data 目录）：跳过这条，不让整个列表挂掉
-    }
+    } catch { /* 索引里有、文件没了：跳过，不让整个列表挂掉 */ }
   }
   out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   return out;
 }
 
+/**
+ * 旧数据迁移：上一版的书有 bible / outline、章节只有 text。
+ * 读到就转成新模型，不丢一个字（字数按新口径重算）。
+ */
+function migrate(book) {
+  if (!book || book.schema === 'studio-v2') return book;
+
+  const settings = book.settings ?? {
+    premise: book.logline ?? book.bible?.promise?.sellingPoint ?? '',
+    characters: (book.bible?.characters ?? []).map((c) => ({
+      name: c.name, role: c.role, want: c.want, flaw: c.flaw, voice: c.voice,
+    })),
+    world: (book.bible?.world ?? []).map((w) => ({ rule: w.rule, cost: w.cost, bound: w.bound })),
+    outline: (book.outline?.chapters ?? []).map((c) => ({
+      index: c.index, title: c.title, goal: c.goal, conflict: c.conflict, hook: c.hook,
+    })),
+  };
+
+  const chapters = (book.chapters ?? []).map((c, i) => ({
+    id: c.id ?? `ch-${c.index ?? i + 1}`,
+    index: c.index ?? i + 1,
+    title: c.title ?? '',
+    text: c.text ?? '',
+    words: wordCount(c.text ?? ''),
+    mem: c.memory ?? c.mem ?? null,
+    updatedAt: c.writtenAt ?? book.updatedAt ?? new Date().toISOString(),
+  }));
+
+  return {
+    ...book,
+    schema: 'studio-v2',
+    track: book.track ?? 'web-novel',
+    settings,
+    chapters,
+    memory: book.memory ?? null,
+  };
+}
+
 export function summary(book) {
   const chapters = Array.isArray(book.chapters) ? book.chapters : [];
   const written = chapters.filter((c) => c?.text);
-  const words = written.reduce((n, c) => n + (c.words ?? 0), 0);
-  const scanned = written.filter((c) => typeof c.scan?.score === 'number');
   return {
     id: book.id,
     title: book.title,
-    genre: book.genre,
-    logline: book.logline,
+    track: book.track,
+    genre: book.genre ?? '',
     targetWords: book.targetWords,
-    wordsPerChapter: book.wordsPerChapter,
-    planned: book.outline?.chapters?.length ?? 0,
+    chapters: chapters.length,
     written: written.length,
-    words,
-    avgScan: scanned.length
-      ? Math.round((scanned.reduce((n, c) => n + c.scan.score, 0) / scanned.length) * 10) / 10
-      : null,
-    hasBible: Boolean(book.bible),
-    hasOutline: Boolean(book.outline),
-    createdAt: book.createdAt,
+    words: written.reduce((n, c) => n + (c.words ?? 0), 0),
     updatedAt: book.updatedAt,
+    createdAt: book.createdAt,
+    lastChapter: written.length ? (written[written.length - 1].title || `第${written.length}章`) : '',
   };
 }
+
+export { wordCount };

@@ -25,7 +25,7 @@ import * as polishService from '../services/polishService.js';
 import * as titleService from '../services/titleService.js';
 import * as relationsService from '../services/relationsService.js';
 import * as deaiService from '../services/deaiService.js';
-import * as novelService from '../services/novelService.js';
+import * as studio from '../services/novelStudio.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import { normalizeSettings, maskSettings, PRESETS, chatComplete } from '../agent/llmClient.js';
 import * as llmClient from '../agent/llmClient.js';
@@ -518,57 +518,69 @@ api.post('/api/relations', async (req, res) => {
 });
 
 
-/* ---------------- 小说创作（长篇：设定集 → 章纲 → 逐章正文） ----------------
- * 三个生成动作分开暴露：写到第 40 章时用户只改一章，不该被迫重跑整条链。 */
-api.get('/api/novels', (req, res) => sendJson(res, 200, { items: novelService.listBooks() }));
+/* ---------------- 小说写作台（书 / 章节 / 续写 / 导出） ----------------
+ * 照墨笔的模型：书是手稿，章节是正文单元；模型只在「续写/起草」时才介入。 */
+api.get('/api/novels', (req, res) => sendJson(res, 200, { items: studio.listBooks() }));
 
 api.post('/api/novels', async (req, res) => {
   const b = req.body ?? {};
-  sendJson(res, 201, await novelService.createBook({
+  sendJson(res, 201, await studio.createBook({
     title: requireString(b.title, 'title', { min: 1, max: 40 }),
+    track: optionalString(b.track, 'track', { max: 20 }) ?? '',
     genre: optionalString(b.genre, 'genre', { max: 40 }) ?? '',
-    logline: optionalString(b.logline, 'logline', { max: 200 }) ?? '',
     audience: optionalString(b.audience, 'audience', { max: 20 }) ?? '',
-    tone: optionalString(b.tone, 'tone', { max: 40 }) ?? '',
-    style: optionalString(b.style, 'style', { max: 40 }) ?? '',
-    forbidden: optionalString(b.forbidden, 'forbidden', { max: 200 }) ?? '',
-    targetWords: requireInt(b.targetWords ?? 200000, 'targetWords', { min: 5000, max: 2000000, fallback: 200000 }),
-    wordsPerChapter: requireInt(b.wordsPerChapter ?? 3000, 'wordsPerChapter', { min: 800, max: 12000, fallback: 3000 }),
+    premise: optionalString(b.premise, 'premise', { max: 300 }) ?? '',
+    targetWords: requireInt(b.targetWords ?? 200000, 'targetWords', { min: 1000, max: 3000000, fallback: 200000 }),
   }));
 });
 
-api.get('/api/novels/:id', (req, res) => sendJson(res, 200, novelService.detail(req.params.id)));
+api.get('/api/novels/:id', (req, res) => sendJson(res, 200, studio.detail(req.params.id)));
+
+api.patch('/api/novels/:id', async (req, res) => {
+  const b = req.body ?? {};
+  const patch = { ...b };
+  if (b.title !== undefined) patch.title = requireString(b.title, 'title', { min: 1, max: 40 });
+  sendJson(res, 200, await studio.updateBook(req.params.id, patch));
+});
 
 api.delete('/api/novels/:id', async (req, res) => {
-  await novelService.removeBook(req.params.id);
+  await studio.removeBook(req.params.id);
   sendJson(res, 200, { ok: true });
 });
 
-api.post('/api/novels/:id/bible', async (req, res) => sendJson(res, 200, await novelService.planBible(req.params.id)));
-
-api.post('/api/novels/:id/outline', async (req, res) => sendJson(res, 200, await novelService.planOutline(req.params.id)));
-
-api.post('/api/novels/:id/chapter', async (req, res) => {
+api.post('/api/novels/:id/chapters', async (req, res) => {
   const b = req.body ?? {};
-  // 目标章节：章号上限放到 2000，因为自由写作允许写到大纲之外
-  const index = requireInt(b.index, 'index', { min: 1, max: 2000 });
-  sendJson(res, 200, await novelService.writeChapter(req.params.id, index, {
-    title: optionalString(b.title, 'title', { max: 40 }) ?? '',
-    brief: optionalString(b.brief, 'brief', { max: 500 }) ?? '',
-    // undefined/null = 交给服务层按本书单章字数瞄准；0 = 明确不设目标
-    wordTarget: b.wordTarget === undefined || b.wordTarget === null ? undefined
-      : requireInt(b.wordTarget, 'wordTarget', { min: 0, max: 50000, fallback: undefined }),
-    freedom: b.freedom === undefined ? undefined : Boolean(b.freedom),
-    wordPolicy: b.wordPolicy === 'loose' ? 'loose' : b.wordPolicy === 'strict' ? 'strict' : undefined,
+  sendJson(res, 201, await studio.addChapter(req.params.id, {
+    title: optionalString(b.title, 'title', { max: 60 }) ?? '',
+    text: optionalString(b.text, 'text', { max: 100000 }) ?? '',
   }));
 });
 
-api.post('/api/novels/:id/foreshadow', async (req, res) => {
-  const fid = requireString((req.body ?? {}).id, 'id', { min: 1, max: 20 });
-  sendJson(res, 200, await novelService.markForeshadowPaid(req.params.id, fid));
+api.put('/api/novels/:id/chapters/:cid', async (req, res) => {
+  const b = req.body ?? {};
+  sendJson(res, 200, await studio.saveChapter(req.params.id, req.params.cid, {
+    title: b.title === undefined ? undefined : (optionalString(b.title, 'title', { max: 60 }) ?? ''),
+    text: b.text === undefined ? undefined : (optionalString(b.text, 'text', { max: 200000 }) ?? ''),
+  }));
 });
 
-api.get('/api/novels/:id/export', (req, res) => sendJson(res, 200, novelService.exportBook(req.params.id)));
+api.delete('/api/novels/:id/chapters/:cid', async (req, res) => {
+  sendJson(res, 200, await studio.deleteChapter(req.params.id, req.params.cid));
+});
+
+api.post('/api/novels/:id/chapters/:cid/compose', async (req, res) => {
+  const b = req.body ?? {};
+  sendJson(res, 200, await studio.composeChapter(req.params.id, req.params.cid, {
+    mode: b.mode === 'draft' ? 'draft' : 'continue',
+    words: b.words === undefined ? 1200 : requireInt(b.words, 'words', { min: 200, max: 8000, fallback: 1200 }),
+    instruction: optionalString(b.instruction, 'instruction', { max: 500 }) ?? '',
+  }));
+});
+
+api.get('/api/novels/:id/chapters/:cid/scan', (req, res) =>
+  sendJson(res, 200, studio.scanChapter(req.params.id, req.params.cid)));
+
+api.get('/api/novels/:id/export', (req, res) => sendJson(res, 200, studio.exportBook(req.params.id)));
 
 /* ---------------- 项目（用于保存与串联，非必需） ---------------- */
 api.get('/api/projects', async (req, res) => {

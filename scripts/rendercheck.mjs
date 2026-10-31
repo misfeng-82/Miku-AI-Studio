@@ -137,20 +137,26 @@ const withData = [
   ['templates', async () => { state.view = 'templates'; state.data.tpl = await call('POST', '/api/templates/character-turnaround/fill', { vars: { 角色名: '沈知微' } }); }],
   ['polish', async () => { state.view = 'polish'; state.data.polish = await call('POST', '/api/polish', { line: '那个，我其实吧，就是不想去' }); }],
   ['novel', async () => {
-    // 小说页有三种形态：空书目 / 有新书无设定 / 完整工作台。渲染检查必须画到最复杂那种。
+    // 写作台三栏都要画出来：建书 → 建章 → 存一段正文 → 带着记忆渲染
     state.view = 'novel';
     const created = await call('POST', '/api/novels', {
-      title: '渲染检查临时长篇', genre: '悬疑',
-      logline: '所有人都说那场船难是意外，只有他记得江上一盏没熄的灯。',
-      targetWords: 60000, wordsPerChapter: 3000,
+      title: '渲染检查临时长篇', track: 'web-novel', genre: '悬疑',
+      premise: '所有人都说那场船难是意外，只有他记得江上一盏没熄的灯。',
     });
     const id = created.book.id;
     novelCleanup.push(id);
-    await call('POST', `/api/novels/${id}/bible`, {});
-    await call('POST', `/api/novels/${id}/outline`, {});
-    await call('POST', `/api/novels/${id}/chapter`, { index: 1 });
+    const added = await call('POST', `/api/novels/${id}/chapters`, { title: '灯' });
+    await call('PUT', `/api/novels/${id}/chapters/${added.chapter.id}`, {
+      text: '雾是从江面先起的。沈砚把票根摊在掌心，又攥了回去。\n\n守夜人：「今晚不开闸。」\n\n沈砚问：「我父亲的票，是谁卖的。」',
+    });
     const full = await call('GET', `/api/novels/${id}`);
-    state.data.novel = { list: (await call('GET', '/api/novels')).items, book: full.book, gates: full.gates, readiness: full.readiness };
+    state.data.novel = {
+      list: (await call('GET', '/api/novels')).items,
+      book: full.book,
+      activeId: added.chapter.id,
+      panel: 'settings',
+      scan: null,
+    };
   }],
   ['deai', async () => {
     // 扫描是纯本地的，正常路径能真跑；改写要模型，这里覆盖「扫描后」「改写被跳过」两个分支

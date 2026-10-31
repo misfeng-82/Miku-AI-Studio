@@ -151,6 +151,42 @@ async function writeChapterFromButton(btn, index) {
   }
 }
 
+/* ================= 小说写作台：编辑、自动保存、快捷键 ================= */
+let NOVEL_SAVE_TIMER = null;
+
+const novelEditor = () => document.querySelector('[data-noveltext]');
+function focusEditor() {
+  const ta = novelEditor();
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+/**
+ * 立刻存稿。正文输入停手 900ms 也会调它。
+ * 存完只改「已保存」状态与字数，不整页重渲染——重渲染会把光标和滚动位置弄丢，
+ * 打字中途那是灾难。
+ */
+async function saveNovelNow() {
+  const ta = novelEditor();
+  const titleEl = document.querySelector('[data-novelchtitle]');
+  if (!ta && !titleEl) return;
+  await novel.saveActive({ text: ta ? ta.value : undefined, title: titleEl ? titleEl.value : undefined });
+  const chip = document.querySelector('.wb-save');
+  if (chip) { chip.classList.remove('is-on'); chip.textContent = '已保存'; }
+  const ch = state.data.novel?.book?.chapters?.find((c) => c.id === state.data.novel?.activeId);
+  if (ch) {
+    document.querySelectorAll('.wb-ch-head .muted').forEach((el) => { el.textContent = `${ch.words} 字`; });
+    const item = document.querySelector(`[data-novelspick="${ch.id}"] .wb-ch-m`);
+    if (item) item.textContent = `${ch.words} 字`;
+  }
+}
+
+function scheduleNovelSave() {
+  clearTimeout(NOVEL_SAVE_TIMER);
+  const chip = document.querySelector('.wb-save');
+  if (chip) { chip.classList.add('is-on'); chip.textContent = '未保存…'; }
+  NOVEL_SAVE_TIMER = setTimeout(() => { saveNovelNow(); }, 900);
+}
+
 /* ================= 渲染 ================= */
 function renderSidebar() {
   $('#sidebarNav').innerHTML = SIDEBAR.map((g) => `<div class="nav-group">
@@ -387,7 +423,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud],[data-foreconfirm],[data-novelfree],[data-wordpolicy],[data-copychapter],[data-copyall],[data-novelchapter],[data-noveldelete]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -425,24 +461,8 @@ document.addEventListener('click', (e) => {
     novel.backToShelf().then(render).catch(() => render());
     return;
   }
-  if (btn.dataset.novelwrite !== undefined) {
-    writeChapterFromButton(btn, Number(btn.dataset.novelwrite));
-    return;
-  }
   if (btn.dataset.novelexport !== undefined) {
     novel.exportBook(btn.dataset.novelexport).catch((e) => toast(e.message, 'err'));
-    return;
-  }
-  if (btn.dataset.wordpolicy !== undefined) {
-    state.cfg.novelWordPolicy = btn.dataset.wordpolicy === 'loose' ? 'loose' : 'strict';
-    save(); render(); return;
-  }
-  if (btn.dataset.copychapter !== undefined) { novel.copyChapter(btn.dataset.copychapter); return; }
-  if (btn.dataset.novelchapter !== undefined) {
-    novel.selectChapter(btn.dataset.novelchapter);
-    render();
-    // 记录卡在工作台下方：滚动到它，省得用户以为没反应
-    document.querySelector('[data-record-anchor]')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     return;
   }
   if (btn.dataset.noveldelete !== undefined) {
@@ -451,18 +471,26 @@ document.addEventListener('click', (e) => {
       .catch((e) => toast(e.message, 'err'));
     return;
   }
-  if (btn.dataset.copyall !== undefined) { novel.copyAll(); return; }
-  if (btn.dataset.novelfree !== undefined) {
-    state.cfg.novelFreedom = btn.dataset.novelfree === '1';
-    save(); render(); return;
-  }
-  if (btn.dataset.foreconfirm !== undefined) {
-    const b = state.data.novel?.book;
-    if (b) novel.confirmFore(b.id, btn.dataset.foreconfirm).then(render).catch((e) => toast(e.message, 'err'));
+  if (btn.dataset.noveladdch !== undefined) {
+    novel.addChapter().then(render).catch((e) => toast(e.message, 'err'));
     return;
   }
-  if (btn.dataset.novelgenre !== undefined) { state.cfg.novelGenre = btn.dataset.novelgenre; save(); render(); return; }
-  if (btn.dataset.novelaud !== undefined) { state.cfg.novelAudience = btn.dataset.novelaud; save(); render(); return; }
+  if (btn.dataset.novelspick !== undefined) {
+    // 先存当前章再切：不然刚打的字会随重渲染一起消失
+    saveNovelNow()
+      .then(() => novel.selectChapter(btn.dataset.novelspick))
+      .then(() => { render(); focusEditor(); })
+      .catch(() => { render(); });
+    return;
+  }
+  if (btn.dataset.noveldelch !== undefined) {
+    novel.deleteChapter(btn.dataset.noveldelch).then(render).catch((e) => toast(e.message, 'err'));
+    return;
+  }
+  if (btn.dataset.novelpanel !== undefined) { novel.setPanel(btn.dataset.novelpanel); render(); return; }
+  if (btn.dataset.novelsave !== undefined) { saveNovelNow(); return; }
+  if (btn.dataset.novelcopych !== undefined) { novel.copyChapterText(); return; }
+  if (btn.dataset.noveltrack !== undefined) { state.cfg.novelTrack = btn.dataset.noveltrack; save(); render(); return; }
   if (btn.dataset.titlegenre !== undefined) { state.cfg.titleGenre = btn.dataset.titlegenre; save(); render(); return; }
   // AI 剧本生成：写某一集（集数从按钮上带下来，闭包进 runner）；展开/收起某一集正文
   if (btn.dataset.genep !== undefined) { const ep = Number(btn.dataset.genep); run('genEp', () => RUNNERS.genEp(ep)); return; }
@@ -577,6 +605,30 @@ document.addEventListener('keydown', (e) => {
     const idx = Number(e.key) - 1;
     const v = ALL_ITEMS[idx];
     if (v) { e.preventDefault(); state.view = v.id; save(); render(); lazyLoad(v.id); }
+  }
+});
+
+
+/* 小说写作台：正文输入自动保存、标题与设定失焦保存、人物/规则回车添加 */
+document.addEventListener('input', (e) => {
+  if (e.target.matches('[data-noveltext]')) scheduleNovelSave();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-novelchtitle]')) saveNovelNow();
+  if (e.target.matches('[data-noveltitle]')) novel.setTitle(e.target.value).catch((err) => toast(err.message, 'err'));
+  if (e.target.matches('[data-novelsetting]')) {
+    novel.setSetting(e.target.dataset.novelsetting, e.target.value).catch((err) => toast(err.message, 'err'));
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  if (e.target.matches('[data-novelcast]')) {
+    e.preventDefault();
+    novel.addCast(e.target.value).then(() => { e.target.value = ''; render(); }).catch((err) => toast(err.message, 'err'));
+  }
+  if (e.target.matches('[data-novelworld]')) {
+    e.preventDefault();
+    novel.addWorld(e.target.value).then(() => { e.target.value = ''; render(); }).catch((err) => toast(err.message, 'err'));
   }
 });
 
