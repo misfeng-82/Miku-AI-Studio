@@ -139,8 +139,10 @@ export const state = {
     // 剧本转分镜：当前在拆第几集
     shotEp: 1,
     fmt: 'short-drama', polishLine: '', titleGenre: '悬疑', titleKw: '', titleHook: '', titleCount: 12,
+    // 去 AI 味：稿子与门禁线（门禁线 40 = 定稿）
+    deaiText: '', deaiTarget: 40,
   },
-  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null },
+  data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null },
   busy: {},
   sel: { lineChar: null },
 };
@@ -189,7 +191,7 @@ const RESULT_SLOT = {
   evaluate: 'eval', optimize: 'opt', checkup: 'checkup', stats: 'stats',
   assets: 'assets', linebook: 'linebook', relations: 'relations', compare: 'compare',
   format: 'fmt', storyboard: 'shots', gen: 'genflow', hot: 'hot', split: 'split',
-  titles: 'titles', polish: 'polish', templates: 'tpl', library: 'library',
+  titles: 'titles', polish: 'polish', templates: 'tpl', library: 'library', deai: 'deai',
 };
 export function clearOwnResult() {
   const k = RESULT_SLOT[state.view];

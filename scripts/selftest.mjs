@@ -11,6 +11,7 @@ import { loadJsonLike, loadJsonArrayLike } from '../src/agent/jsonRepair.js';
 import { autoFixScript, evaluateScript, estimateSeconds } from '../src/services/scriptService.js';
 import { gateReport as outlineGates } from '../src/engine/outline.mjs';
 import { gateReport as scriptGates } from '../src/engine/script.mjs';
+import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
 import { parseScriptText } from '../public/parseScriptText.js';
 import { generateStory, generateOutline, generateEpisode, assemble, splitLongLines } from '../src/services/scriptGenService.js';
 import { HOT_DRAMAS, HOT_BOARD_META } from '../src/assets/hotDramas.js';
@@ -895,6 +896,81 @@ t('集号缺失时按 index / 位置兜底，绝不输出 undefined', () => {
   assert.match(withEp, /第 3 集/, `应用 ep 定位，实际：${withEp || '(无 duration 文案)'}`);
   // 三种情况都不许出现 undefined
   assert.ok(!/undefined/.test(withIndex + bare + withEp), '报错文案里不应出现 undefined');
+});
+
+
+/* ---- 去 AI 味扫描器（移植自绘梦 deai_scan.py，13 维实测）---- */
+// 这些用例锁的是「确定性」：同一段文本任何时候都要是同一个分，
+// 否则它就不配当门禁，只能当参考。
+const DIRTY = '他心中一紧，不禁后退半步。仿佛有什么东西在黑暗里蠕动，空气中弥漫着一种说不清的气息。'
+  + '他深吸一口气，屏住呼吸。与此同时，他意识到，这一刻终究还是来了。一切都变了。他知道，从此以后再也回不去了。';
+const CLEAN = '他把碗放到桌上，放得很轻。水汽往上走，糊住了窗子一角。'
+  + '楼下有人在敲铁皮，一下，两下，停了。他数到第七下的时候，门外传来脚步声。';
+const SCRIPT_SAMPLE = '场1-1 日 内 出租屋\n△阿May把碗摞起来，最上面那只晃了一下。\n阿May：你今天不走了？\n老周：走不了。\n阿May：那房租呢。';
+
+t('去 AI 味：词表没有被删空', () => {
+  const s = bankStats();
+  assert.ok(s.groups >= 7, `套话分组应 ≥7，实际 ${s.groups}`);
+  assert.ok(s.words >= 150, `词表应 ≥150 条，实际 ${s.words}`);
+});
+
+t('去 AI 味：空文本返回明确错误而不是 0 分', () => {
+  const r = deaiAnalyze('   ');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /没有可扫描/);
+});
+
+t('去 AI 味：同一段文本两次扫描同分（可当门禁用）', () => {
+  const a = deaiAnalyze(DIRTY);
+  const b = deaiAnalyze(DIRTY);
+  assert.equal(a.score, b.score);
+  assert.equal(a.clicheTotal, b.clicheTotal);
+});
+
+t('去 AI 味：套话文本分数明显高于干净文本', () => {
+  const bad = deaiAnalyze(DIRTY).score;
+  const good = deaiAnalyze(CLEAN).score;
+  assert.ok(bad > good + 20, `脏文本 ${bad} 应明显高于干净文本 ${good}`);
+});
+
+t('去 AI 味：分数恒在 0–100，13 个维度齐全', () => {
+  const r = deaiAnalyze(DIRTY);
+  assert.ok(r.score >= 0 && r.score <= 100, `分数越界：${r.score}`);
+  assert.equal(r.dimensions.length, 13);
+  assert.ok(r.dimensions.every((d) => d.penalty >= 0 && d.penalty <= 1), '惩罚值应在 0–1');
+});
+
+t('去 AI 味：短样本给出「仅供参考」而不是硬判', () => {
+  const r = deaiAnalyze('他走了。');
+  assert.ok(r.advisory.some((a) => /不足 300 字|仅供参考/.test(a)), '短样本应给提示');
+  const g = deaiGate(r, { maxScore: 20 })[0];
+  assert.equal(g.ok, true, '样本太短时不应判死');
+  assert.equal(g.soft, true);
+});
+
+t('去 AI 味：剧本「角色：台词」被识别为对话', () => {
+  const r = deaiAnalyze(SCRIPT_SAMPLE);
+  assert.ok(r.basic.dialogRatio > 0, `剧本对话占比应 > 0，实际 ${r.basic.dialogRatio}`);
+  // 三句台词一共 13 个汉字，这里锁的是「有没有被认成对话」，不是字数阈值
+  assert.ok(r.basic.dialogChars >= 10, `对话字数应 ≥10，实际 ${r.basic.dialogChars}`);
+});
+
+t('去 AI 味：只扫正文，不吃修改记录', () => {
+  const raw = '# 第1章\n\n### 一、修改后全文\n' + CLEAN + '\n\n### 二、修改记录\n| 原句 | 改句 |\n|---|---|\n| 不禁 | 删 |';
+  const got = extractBody(raw);
+  assert.equal(got.extracted, true);
+  assert.ok(got.text.includes('他把碗放到桌上'), '应抽到正文');
+  assert.ok(!got.text.includes('修改记录'), '不应包含修改记录');
+  assert.ok(!got.text.includes('不禁'), '不应把修改记录里的套话算进正文');
+});
+
+t('去 AI 味：门禁结构与其它引擎同形', () => {
+  const r = deaiAnalyze(DIRTY);
+  const [g] = deaiGate(r, { maxScore: 40 });
+  assert.equal(g.id, 'deai');
+  assert.equal(typeof g.label, 'string');
+  assert.equal(typeof g.ok, 'boolean');
+  assert.match(g.detail, /AI 痕迹分/);
 });
 
 for (const [name, fn] of asyncTests) {

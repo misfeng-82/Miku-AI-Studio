@@ -71,15 +71,17 @@ const pageKeys = new Set(pages.map((p) => p.key));
 for (const id of sidebarIds) if (!pageKeys.has(id)) report('页面未注册', `侧栏项「${id}」在 PAGES 里没有对应视图`);
 
 /* 6. PAGES 目标必须真的是导出的函数 */
-const modOf = {
-  intel: await import(new URL('../public/views/intel.js', import.meta.url)),
-  script: await import(new URL('../public/views/script.js', import.meta.url)),
-  quality: await import(new URL('../public/views/quality.js', import.meta.url)),
-  assets: await import(new URL('../public/views/assets.js', import.meta.url)),
-  storyboard: await import(new URL('../public/views/storyboard.js', import.meta.url)),
-  tools: await import(new URL('../public/views/tools.js', import.meta.url)),
-  system: await import(new URL('../public/views/system.js', import.meta.url)),
-};
+// 按 PAGES 里实际用到的模块名去 import，不维护硬编码清单：
+// 早先这里是手写的一份映射，加了「去 AI 味」页就得记着来这里补一行，
+// 漏了就会误报「页面模块缺失」。清单能从 PAGES 推出来，就不该由人维护。
+const modOf = {};
+for (const name of [...new Set(pages.map((p) => p.mod))].sort()) {
+  try {
+    modOf[name] = await import(new URL(`../public/views/${name}.js`, import.meta.url));
+  } catch {
+    // 模块文件真的不存在：留给下面的「页面模块缺失」统一报
+  }
+}
 for (const p of pages) {
   const mod = modOf[p.mod];
   if (!mod) { report('页面模块缺失', `PAGES.${p.key} 指向未导入模块 ${p.mod}`); continue; }

@@ -44,6 +44,7 @@ const views = {
   titles: (await import('../public/views/tools.js')).viewTitles,
   library: (await import('../public/views/system.js')).viewLibrary,
   engine: (await import('../public/views/system.js')).viewEngine,
+  deai: (await import('../public/views/deai.js')).viewDeai,
 };
 
 let pass = 0;
@@ -133,6 +134,14 @@ const withData = [
   ['format', async () => { state.view = 'format'; state.data.fmt = await call('POST', '/api/format', { script: SCRIPT, outline: OUTLINE, format: 'short-drama' }); }],
   ['templates', async () => { state.view = 'templates'; state.data.tpl = await call('POST', '/api/templates/character-turnaround/fill', { vars: { 角色名: '沈知微' } }); }],
   ['polish', async () => { state.view = 'polish'; state.data.polish = await call('POST', '/api/polish', { line: '那个，我其实吧，就是不想去' }); }],
+  ['deai', async () => {
+    // 扫描是纯本地的，正常路径能真跑；改写要模型，这里覆盖「扫描后」「改写被跳过」两个分支
+    state.view = 'deai';
+    const dirty = '他心中一紧，不禁后退半步。仿佛有什么东西在黑暗里蠕动。他深吸一口气，屏住呼吸。与此同时，他意识到，这一刻终究还是来了。';
+    const scan = await call('POST', '/api/deai/scan', { text: dirty, maxScore: 40 });
+    const rw = await call('POST', '/api/deai/rewrite', { text: dirty, target: 40 });
+    state.data.deai = { scan, rw };
+  }],
   ['titles', async () => { state.view = 'titles'; state.data.titles = await call('POST', '/api/titles', { genre: '悬疑', keyword: '渡口', count: 8 }); }],
   ['gen', async () => {
     state.view = 'gen';

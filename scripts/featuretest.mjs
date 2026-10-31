@@ -790,6 +790,77 @@ await t('边界：polish 空数组不崩', async () => {
   return `HTTP ${r.status}`;
 });
 
+/* ---------------- 去 AI 味（扫描纯本地 / 改写调模型） ---------------- */
+const DEAI_DIRTY = '他心中一紧，不禁后退半步。仿佛有什么东西在黑暗里蠕动，空气中弥漫着一种说不清的气息。'
+  + '他深吸一口气，屏住呼吸。与此同时，他意识到，这一刻终究还是来了。一切都变了。'
+  + '他知道，从此以后再也回不去了。有些话说出口，就再也收不回。他站在原地，久久没有动。';
+
+await t('POST /api/deai/scan 13 维扫描', async () => {
+  const r = await call('POST', '/api/deai/scan', { text: DEAI_DIRTY, maxScore: 40 });
+  is(r, 200, 'deai scan');
+  truthy(typeof r.data.report.score === 'number', '应返回分数');
+  eq(r.data.report.dimensions.length, 13, '维度数');
+  eq(r.data.gates.length, 1, '门禁条数');
+  truthy(r.data.report.clicheTotal > 0, '脏文本应命中套话');
+  return `${r.data.report.score} 分 · 套话 ${r.data.report.clicheTotal} 处`;
+});
+
+await t('POST /api/deai/scan 同一文本两次同分（确定性）', async () => {
+  const a = await call('POST', '/api/deai/scan', { text: DEAI_DIRTY });
+  const b = await call('POST', '/api/deai/scan', { text: DEAI_DIRTY });
+  eq(b.data.report.score, a.data.report.score, '两次扫描分数');
+  return `${a.data.report.score} = ${b.data.report.score}`;
+});
+
+await t('边界：deai scan 空文本返回 422', async () => {
+  const r = await call('POST', '/api/deai/scan', { text: '' });
+  is(r, 422, '空文本应被拦');
+  return '空文本被拦';
+});
+
+await t('边界：deai scan 缺 text 字段返回 422', async () => {
+  const r = await call('POST', '/api/deai/scan', {});
+  is(r, 422, '缺字段应被拦');
+  return '缺字段被拦';
+});
+
+await t('GET /api/deai/rules 规则库完整', async () => {
+  const r = await call('GET', '/api/deai/rules');
+  is(r, 200, 'deai rules');
+  eq(r.data.rules.length, 10, '本机规则条数');
+  eq(r.data.sixChecks.length, 6, '六项诊断');
+  eq(r.data.subtract.length, 7, '减法项');
+  eq(r.data.add.length, 5, '加法项');
+  return `规则 ${r.data.rules.length} / 诊断 ${r.data.sixChecks.length} / 减 ${r.data.subtract.length} / 加 ${r.data.add.length}`;
+});
+
+await t('POST /api/deai/rewrite 未接模型时如实跳过（不假装改过）', async () => {
+  const r = await call('POST', '/api/deai/rewrite', { text: DEAI_DIRTY, target: 40 });
+  is(r, 200, 'deai rewrite');
+  truthy(typeof r.data.before?.score === 'number', '扫描结果仍应返回');
+  if (r.data.llm?.mode !== 'live') {
+    truthy(r.data.skipped === true, '未接入模型时应标记 skipped');
+    truthy(/改写需要|不重写/.test(r.data.note ?? ''), `说明应讲清为什么没改：${r.data.note}`);
+    eq(r.data.text, '', '不应返回假正文');
+    return `跳过（${r.data.llm?.mode}）：${String(r.data.note).slice(0, 24)}…`;
+  }
+  truthy(r.data.after?.score <= r.data.target || r.data.note.includes('仍未过门'), '真模型时应给出复扫结果或明确未过门');
+  return `改后 ${r.data.after.score} 分`;
+});
+
+await t('边界：deai rewrite 太短返回 422', async () => {
+  const r = await call('POST', '/api/deai/rewrite', { text: '太短了' });
+  is(r, 422, '不足 30 字应被拦');
+  return '短文本被拦';
+});
+
+await t('边界：deai rewrite 门禁线越界收敛到合法区间', async () => {
+  const r = await call('POST', '/api/deai/rewrite', { text: DEAI_DIRTY, target: 999 });
+  truthy([200, 422].includes(r.status), `意外状态 ${r.status}`);
+  if (r.status === 200) truthy(r.data.target <= 80, `target 应被收敛，实际 ${r.data.target}`);
+  return `HTTP ${r.status}${r.status === 200 ? ` · target=${r.data.target}` : ''}`;
+});
+
 await t('POST /api/titles 爆款标题', async () => {
   const r = await call('POST', '/api/titles', { genre: '悬疑', keyword: '渡口', count: 8 });
   is(r, 200, 'titles');

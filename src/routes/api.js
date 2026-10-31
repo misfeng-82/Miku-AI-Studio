@@ -24,6 +24,7 @@ import * as formatService from '../services/formatService.js';
 import * as polishService from '../services/polishService.js';
 import * as titleService from '../services/titleService.js';
 import * as relationsService from '../services/relationsService.js';
+import * as deaiService from '../services/deaiService.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import { normalizeSettings, maskSettings, PRESETS, chatComplete } from '../agent/llmClient.js';
 import * as llmClient from '../agent/llmClient.js';
@@ -477,6 +478,25 @@ api.post('/api/polish', async (req, res) => {
   const items = lines.map((l) => polishService.polishLine(typeof l === 'string' ? l : l.text ?? l.line ?? ''));
   sendJson(res, 200, single ? items[0] : { items, changed: items.filter((x) => x.changes.length).length, total: items.length });
 });
+
+// 去 AI 味：扫描是纯本地的，改写才调模型
+// 拆成两个端点，是因为「先看看我这稿有几分」不该花钱——
+// 合成一个端点的话，用户每次只想扫一眼都得走一次模型调用。
+api.post('/api/deai/scan', (req, res) => {
+  const b = req.body ?? {};
+  const text = requireString(b.text, 'text', { min: 10, max: 60000 });
+  sendJson(res, 200, deaiService.scan(text, { maxScore: b.maxScore }));
+});
+
+api.post('/api/deai/rewrite', async (req, res) => {
+  const b = req.body ?? {};
+  const text = requireString(b.text, 'text', { min: 30, max: 60000 });
+  const target = requireInt(b.target ?? deaiService.LIMITS.defaultTarget, 'target', { min: 10, max: 80, fallback: 40 });
+  const rounds = requireInt(b.rounds ?? deaiService.LIMITS.maxRounds, 'rounds', { min: 1, max: 2, fallback: 2 });
+  sendJson(res, 200, await deaiService.rewrite({ text, target, rounds }));
+});
+
+api.get('/api/deai/rules', (req, res) => sendJson(res, 200, deaiService.rules()));
 
 // 爆款标题生成
 api.post('/api/titles', async (req, res) => {

@@ -84,6 +84,9 @@ export const api = {
   stats: (b) => request('POST', '/api/stats', b),
   format: (b) => request('POST', '/api/format', b),
   polish: (b) => request('POST', '/api/polish', b),
+  deaiScan: (b) => request('POST', '/api/deai/scan', b),
+  deaiRewrite: (b) => request('POST', '/api/deai/rewrite', b),
+  deaiRules: () => request('GET', '/api/deai/rules'),
   titles: (b) => request('POST', '/api/titles', b),
   relations: (b) => request('POST', '/api/relations', b),
 

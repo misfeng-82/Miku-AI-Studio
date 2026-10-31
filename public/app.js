@@ -10,6 +10,7 @@ import * as assets from './views/assets.js';
 import * as storyboard from './views/storyboard.js';
 import * as tools from './views/tools.js';
 import * as system from './views/system.js';
+import * as deai from './views/deai.js';
 
 /* ================= 侧栏注册表（单一事实来源） ================= */
 const SIDEBAR = [
@@ -30,6 +31,7 @@ const SIDEBAR = [
   { group: '质量把控', items: [
     { id: 'evaluate', name: '剧本评估', icon: 'shield' },
     { id: 'optimize', name: '剧本优化', icon: 'wrench' },
+    { id: 'deai', name: '去 AI 味', icon: 'wand', hot: true },
     { id: 'stats', name: '统计报表', icon: 'chart' },
   ]},
   { group: '资产中心', items: [
@@ -63,6 +65,7 @@ const PAGES = {
   format: script.viewFormat,
   evaluate: quality.viewEvaluate,
   optimize: quality.viewOptimize,
+  deai: deai.viewDeai,
   stats: quality.viewStats,
   storyboard: storyboard.viewStoryboard,
   assets: assets.viewAssets,
@@ -81,6 +84,7 @@ const RUNNERS = {
   ...assets.runners,
   ...storyboard.runners,
   ...tools.runners,
+  ...deai.runners,
   usage: system.runners.usage,
 };
 
@@ -320,7 +324,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -348,6 +352,8 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.aspect !== undefined) { state.cfg.aspect = btn.dataset.aspect; save(); render(); return; }
   if (btn.dataset.tpl !== undefined) { state.cfg.tplId = btn.dataset.tpl; state.data.tpl = null; save(); render(); return; }
   if (btn.dataset.linechar !== undefined) { state.sel.lineChar = btn.dataset.linechar; render(); return; }
+  if (btn.dataset.deaitarget !== undefined) { state.cfg.deaiTarget = Number(btn.dataset.deaitarget) || 40; state.data.deai = null; save(); render(); return; }
+  if (btn.dataset.deaiAdopt !== undefined) { deai.adoptRewrite(); render(); return; }
   if (btn.dataset.titlegenre !== undefined) { state.cfg.titleGenre = btn.dataset.titlegenre; save(); render(); return; }
   // AI 剧本生成：写某一集（集数从按钮上带下来，闭包进 runner）；展开/收起某一集正文
   if (btn.dataset.genep !== undefined) { const ep = Number(btn.dataset.genep); run('genEp', () => RUNNERS.genEp(ep)); return; }
