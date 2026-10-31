@@ -362,6 +362,10 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 .btn-sm { height: 27px; padding: 0 10px; font-size: 11px; }
 .btn-block { width: 100%; }
 .btn .spin { animation: spin 1s linear infinite; }
+/* 局部 loading 的按钮：点了不能再点，但别变成灰色不可读——它同时在报秒数 */
+.btn.is-loading { cursor: progress; opacity: .85; }
+.btn.is-loading .elapsed { font-family: var(--mono); font-size: 10px; opacity: .8; margin-left: 2px; }
+.btn:disabled { cursor: not-allowed; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .icon-btn {

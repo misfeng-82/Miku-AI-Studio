@@ -106,6 +106,51 @@ const RUNNERS = {
   usage: system.runners.usage,
 };
 
+/* ================= 写章的局部 loading ================= */
+/**
+ * 从「写这章」按钮发起生成：只在按钮自己身上做 loading，不整页重渲染。
+ *
+ * 为什么不用 run()：run() 一开始就 render() 整页——输入框失焦、长列表滚回顶部。
+ * 而这里的按钮排在很长的章纲列表里，用户常想连着写好幾章。
+ * 所以点击瞬间只改按钮本身（转圈 + 已等待秒数 + 禁用），其余界面照常可交互；
+ * 只有生成结束、需要展示新章节时才整页 render，并把滚动位置原样还回去。
+ */
+async function writeChapterFromButton(btn, index) {
+  // 全局互斥：并发生成两章会互相覆盖同一本书（另一个入口是「目标章节」卡的按钮）
+  if (state.busy.novelWrite || state.busy.novelWriteTarget) return;
+  if (btn.disabled) return;
+
+  const original = btn.innerHTML;
+  const t0 = Date.now();
+  state.busy.novelWrite = true;
+  btn.disabled = true;
+  btn.classList.add('is-loading');
+  btn.setAttribute('aria-busy', 'true');
+  btn.innerHTML = `<span class="spin">${ICONS.refresh}</span>写第 ${index} 章 <span class="elapsed">0s</span>`;
+
+  const ticker = setInterval(() => {
+    const el = btn.querySelector('.elapsed');
+    if (el) el.textContent = `${Math.round((Date.now() - t0) / 1000)}s`;
+  }, 1000);
+
+  const scrollY = window.scrollY;
+  try {
+    await RUNNERS.novelWrite(index);
+    render();                      // 完成：把新章节 / 门禁 / 记忆画出来
+    window.scrollTo(0, scrollY);   // 别把用户从列表中间弹回顶部
+  } catch (e) {
+    toast(e.message || '生成失败', 'err');
+    // 失败必须恢复按钮，否则这一章永远点不动
+    btn.disabled = false;
+    btn.classList.remove('is-loading');
+    btn.removeAttribute('aria-busy');
+    btn.innerHTML = original;
+  } finally {
+    clearInterval(ticker);
+    state.busy.novelWrite = false;
+  }
+}
+
 /* ================= 渲染 ================= */
 function renderSidebar() {
   $('#sidebarNav').innerHTML = SIDEBAR.map((g) => `<div class="nav-group">
@@ -381,8 +426,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (btn.dataset.novelwrite !== undefined) {
-    const i = Number(btn.dataset.novelwrite);
-    run('novelWrite', () => RUNNERS.novelWrite(i));
+    writeChapterFromButton(btn, Number(btn.dataset.novelwrite));
     return;
   }
   if (btn.dataset.novelexport !== undefined) {

@@ -377,6 +377,8 @@ export const runners = {
   async novelWriteTarget() {
     const b = book();
     if (!b) return toast('先选一本书', 'warn');
+    // 章纲列表里的「写这章」可能正在跑：两个入口不能同时写同一本书
+    if (state.busy.novelWrite) return toast('正在写另一章，等它完成再点', 'warn');
     const idx = Number(cfg().novelChapter) || nextIndex(b);
     // 留空 = 交给服务层按本书单章字数；填 0 = 明确不设目标
     const rawTarget = String(cfg().novelWordTarget ?? '').trim();
