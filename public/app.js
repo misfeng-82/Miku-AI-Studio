@@ -387,7 +387,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud],[data-foreconfirm],[data-novelfree],[data-wordpolicy],[data-copychapter],[data-copyall]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud],[data-foreconfirm],[data-novelfree],[data-wordpolicy],[data-copychapter],[data-copyall],[data-novelchapter],[data-noveldelete]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -438,6 +438,19 @@ document.addEventListener('click', (e) => {
     save(); render(); return;
   }
   if (btn.dataset.copychapter !== undefined) { novel.copyChapter(btn.dataset.copychapter); return; }
+  if (btn.dataset.novelchapter !== undefined) {
+    novel.selectChapter(btn.dataset.novelchapter);
+    render();
+    // 记录卡在工作台下方：滚动到它，省得用户以为没反应
+    document.querySelector('[data-record-anchor]')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return;
+  }
+  if (btn.dataset.noveldelete !== undefined) {
+    novel.deleteBook(btn.dataset.noveldelete, btn.dataset.novelname || '这本书')
+      .then((done) => { if (done) render(); })
+      .catch((e) => toast(e.message, 'err'));
+    return;
+  }
   if (btn.dataset.copyall !== undefined) { novel.copyAll(); return; }
   if (btn.dataset.novelfree !== undefined) {
     state.cfg.novelFreedom = btn.dataset.novelfree === '1';

@@ -366,6 +366,8 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 .btn.is-loading { cursor: progress; opacity: .85; }
 .btn.is-loading .elapsed { font-family: var(--mono); font-size: 10px; opacity: .8; margin-left: 2px; }
 .btn:disabled { cursor: not-allowed; }
+/* 章纲里被选中的那一章：左侧一道竖线，不用整行变色（整行变色会和「未写」标签打架） */
+.row-active { background: var(--surface-2); border-radius: var(--r-sm); box-shadow: inset 2px 0 0 var(--brand); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .icon-btn {

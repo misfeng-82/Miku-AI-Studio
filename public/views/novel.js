@@ -19,17 +19,21 @@ function chapterTag(ch) {
 /* ================= 书目列表 ================= */
 function shelfCard(b) {
   const pct = b.planned ? Math.round((b.written / b.planned) * 100) : 0;
-  return `<button class="card card-tight" data-novelopen="${b.id}" style="text-align:left;width:100%">
-    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+  return `<div class="card card-tight" style="position:relative">
+    <button class="card-hit" data-novelopen="${b.id}" style="position:absolute;inset:0;border:0;background:transparent;cursor:pointer" aria-label="打开《${esc(b.title)}》"></button>
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;position:relative;pointer-events:none">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:700;line-height:1.4">${esc(b.title)}</div>
         <div class="muted" style="font-size:10.5px;margin-top:3px">${esc(b.genre || '未定题材')} · 目标 ${b.targetWords} 字</div>
       </div>
       <span class="tag ${b.written ? 'teal' : 'outline'}">${b.written}/${b.planned || '—'} 章</span>
     </div>
-    <div class="bar-track" style="margin-top:10px"><span class="bar-fill teal" style="width:${pct}%"></span></div>
-    <div class="muted" style="font-size:10px;margin-top:6px">${b.words} 字已写${b.avgScan != null ? ` · 平均 AI 痕迹 ${b.avgScan}` : ''}</div>
-  </button>`;
+    <div class="bar-track" style="margin-top:10px;position:relative;pointer-events:none"><span class="bar-fill teal" style="width:${pct}%"></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;position:relative">
+      <span class="muted" style="font-size:10px;pointer-events:none">${b.words} 字已写${b.avgScan != null ? ` · 平均 AI 痕迹 ${b.avgScan}` : ''}</span>
+      <button class="btn btn-sm btn-danger" data-noveldelete="${b.id}" data-novelname="${esc(b.title)}" title="删除这本书（只从书目移除，正文文件保留）">删除</button>
+    </div>
+  </div>`;
 }
 
 /* ================= 新建表单 ================= */
@@ -124,7 +128,8 @@ function outlineCard(b) {
 
     <div class="rows" style="max-height:420px;overflow:auto">${chapters.map((c) => {
       const ch = written.get(c.index);
-      return `<div class="row" style="grid-template-columns:1fr auto;align-items:center">
+      const sel = Number(state.data.novel?.sel);
+      return `<div class="row ${sel === c.index ? 'row-active' : ''}" data-novelchapter="${c.index}" style="grid-template-columns:1fr auto;align-items:center;cursor:pointer">
         <div style="min-width:0">
           <div class="row-title" style="font-size:11.5px">第${c.index}章 ${esc(c.title)}
             <span class="muted" style="font-weight:400">· ${esc(c.goal || '（缺目标）')}</span></div>
@@ -151,24 +156,67 @@ function outlineCard(b) {
   </div>`;
 }
 
-/* ================= 最新章节 ================= */
-function latestChapterCard(b) {
-  const list = [...(b.chapters ?? [])].sort((a, z) => z.index - a.index);
-  const ch = list[0];
-  if (!ch) return '';
-  return `<div class="card">
-    <div class="card-head"><div><h2>第${ch.index}章 ${esc(ch.title)}</h2>
-      <div class="sub">${ch.words} 字${ch.targetWords ? `（目标 ${ch.targetWords}）` : ''} · AI 痕迹 ${ch.scan?.score ?? '—'}（${esc(ch.scan?.grade ?? '')}）${(ch.tidy ?? []).length ? ` · 排版清理 ${ch.tidy.length} 处` : ''}</div></div>
-      <div class="chip-row">${chapterTag(ch)}
+/* ================= 章节记录 ================= */
+/**
+ * 点章纲里的任意一行 → 这里显示那一章的「生成记录」：
+ * 字数/目标、AI 痕迹分、六道门结果、本章要点、出场人物、生成时间、续写次数、排版清理，
+ * 以及完整正文（可一键复制）。
+ * 选中的章号存在 state.data.novel.sel，刷新页面会回到最新一章。
+ */
+function chapterRecordCard(b) {
+  const list = [...(b.chapters ?? [])].filter((c) => c.text).sort((a, z) => a.index - z.index);
+  const sel = Number(state.data.novel?.sel) || (list.length ? list[list.length - 1].index : null);
+  const ch = list.find((c) => c.index === sel) ?? null;
+
+  if (!ch) {
+    return `<div class="card">
+      <div class="card-head"><div><h2>章节记录</h2><div class="sub">点章纲里的任意一章，这里显示它的生成记录</div></div></div>
+      <div class="empty"><div class="eicon">${ICONS.doc}</div><h3>还没有选中的章节</h3><p>先在章纲列表里点一章（没写的章可以直接点「写这章」）。</p></div>
+    </div>`;
+  }
+
+  const when = ch.writtenAt ? new Date(ch.writtenAt).toLocaleString('zh-CN', { hour12: false }) : '—';
+  const inv = ch.invention ?? { characters: [], places: [] };
+  const tidy = ch.tidy ?? [];
+  const mem = ch.memory ?? { points: [], characters: [], places: [] };
+
+  return `<div class="card" data-record-anchor>
+    <div class="card-head">
+      <div><h2>第${ch.index}章 ${esc(ch.title || '')}</h2>
+        <div class="sub">${ch.words} 字${ch.targetWords ? ` / 目标 ${ch.targetWords}（${ch.wordPolicy === 'loose' ? '参考' : '严格'}）` : ''} · 生成于 ${esc(when)}</div></div>
+      <div class="chip-row">
+        ${chapterTag(ch)}
         <button class="btn btn-sm" data-copychapter="${ch.index}" title="复制这一章完整正文">${ICONS.copy}复制本章</button>
-      </div></div>
-    ${ch.gates?.length ? gateList(ch.gates) : ''}
-    ${(ch.memory?.points ?? []).length ? `<div style="margin-top:12px"><div class="fl" style="margin-bottom:6px">本章要点（自动提炼，供下一章参考）</div>
-      <div class="chip-row">${ch.memory.points.map((p) => `<span class="chip static" title="${esc(p)}">${esc(p)}</span>`).join('')}</div></div>` : ''}
-    ${(state.data.novel?.advisories ?? []).length ? `<div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>
-      ${state.data.novel.advisories.map((a) => esc(a)).join('<br>')}</div></div>` : ''}
-    <div class="pblock" style="margin-top:12px"><div class="pblock-head"><span class="ph-name">chapter ${ch.index}</span><span class="tag outline">${ch.words} 字</span></div>
-      <div class="pblock-body" style="max-height:260px;overflow:auto">${esc(ch.text.slice(0, 1200))}${ch.text.length > 1200 ? '…' : ''}</div></div>
+        <button class="btn btn-sm" data-novelwrite="${ch.index}" title="重写这一章">${ICONS.refresh}重写</button>
+      </div>
+    </div>
+
+    ${statStrip([
+      { value: ch.words, label: '净字数' },
+      { value: ch.targetWords ?? '—', label: '目标字数' },
+      { value: ch.scan?.score ?? '—', label: 'AI 痕迹分' },
+      { value: ch.fills ?? 0, label: '续写补齐' },
+    ])}
+
+    ${ch.gates?.length ? `<div style="margin-top:14px">${gateList(ch.gates)}</div>` : ''}
+
+    ${(mem.points ?? []).length ? `<div style="margin-top:12px"><div class="fl" style="margin-bottom:6px">本章要点（自动提炼，供下一章参考）</div>
+      <div class="chip-row">${mem.points.map((p) => `<span class="chip static" title="${esc(p)}">${esc(p)}</span>`).join('')}</div></div>` : ''}
+
+    <div style="margin-top:12px">
+      <div class="chip-row">
+        ${(mem.characters ?? []).length ? `<span class="tag outline">出场：${esc(mem.characters.join('、'))}</span>` : ''}
+        ${(mem.places ?? []).length ? `<span class="tag outline">地点：${esc(mem.places.join('、'))}</span>` : ''}
+        ${tidy.length ? `<span class="tag outline">排版清理 ${tidy.length} 处</span>` : ''}
+      </div>
+    </div>
+
+    ${(inv.characters ?? []).length || (inv.places ?? []).length ? `<div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>
+      <b>可能编造</b>：${[...(inv.characters ?? []), ...(inv.places ?? [])].join('、')} 不在设定与前文里，确认是否有意为之。
+    </div></div>` : ''}
+
+    <div class="pblock" style="margin-top:14px"><div class="pblock-head"><span class="ph-name">chapter ${ch.index}</span><span class="tag outline">${ch.words} 字</span></div>
+      <div class="pblock-body" style="max-height:320px;overflow:auto">${esc(ch.text.slice(0, 2000))}${ch.text.length > 2000 ? '…' : ''}</div></div>
   </div>`;
 }
 
@@ -333,7 +381,7 @@ function workbench(b) {
   ${targetCard(b)}
   ${bibleCard(b)}
   ${outlineCard(b)}
-  ${latestChapterCard(b)}
+  ${chapterRecordCard(b)}
   ${writtenCard(b)}
   ${memoryCard(b)}`;
 }
@@ -400,6 +448,7 @@ export const runners = {
       advisories: r.advisories ?? [],
     };
     // 写完之后把目标章号顺延，方便连着写
+    state.data.novel = { ...(state.data.novel ?? {}), sel: idx };   // 记录卡直接显示刚写的这章
     state.cfg.novelChapter = idx + 1;
     state.cfg.novelChapterTitle = '';
     state.cfg.novelBrief = '';
@@ -456,6 +505,7 @@ export const runners = {
       gates: full.gates,
       readiness: full.readiness,
       advisories: r.advisories ?? [],
+      sel: index,
     };
     if (ch.ok) toast(`第 ${index} 章写完，6 道门全过（AI 痕迹 ${ch.scan?.score}）`);
     else toast(`第 ${index} 章已保存，但有门没过：${ch.error}`, 'warn', 4000);
@@ -477,6 +527,21 @@ export async function copyAll() {
   if (!list.length) return toast('还没有写任何章节', 'warn');
   const text = list.map((c) => `第${c.index}章 ${c.title || ''}\n\n${c.text}`).join('\n\n');
   await copyText(text, `已复制全书 ${list.length} 章（${list.reduce((n, c) => n + (c.words || 0), 0)} 字）`);
+}
+
+/** 删除一本书：只摘索引，正文文件保留（与项目仓一致的软删除口径） */
+export async function deleteBook(id, title) {
+  if (!confirm(`删除《${title}》？\n\n只会从书目移除，正文文件仍保留在 data/ 里，误删可以找回。`)) return false;
+  await api.novelDelete(id);
+  await backToShelf();
+  toast(`已从书目移除《${title}》`);
+  return true;
+}
+
+/** 选中某一章，让「章节记录」卡显示它 */
+export function selectChapter(index) {
+  if (!state.data.novel) return;
+  state.data.novel = { ...state.data.novel, sel: Number(index) };
 }
 
 /** 人工确认某条伏笔已回收 */
