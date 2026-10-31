@@ -235,6 +235,9 @@ export async function writeChapter(id, index, opts = {}) {
   const wordTarget = rawTarget === 0
     ? null
     : Number(rawTarget) > 0 ? Number(rawTarget) : (Number(book.wordsPerChapter) || 3000);
+  /* 字数策略：default strict —— 用户要求「实际字数不得少于或明显偏离要求」。
+     loose 保留给「就想随便写写」的场景，此时字数只报数。 */
+  const wordPolicy = opts.wordPolicy ?? book.wordPolicy ?? 'strict';
   const brief = String(opts.brief ?? '').trim();
 
   const prev = (book.chapters ?? []).find((c) => c.index === idx - 1) ?? null;
@@ -252,6 +255,13 @@ export async function writeChapter(id, index, opts = {}) {
   let gates = [];
   let error = '';
   let tidyChanges = [];
+  let fills = 0;
+
+  /* 第一遍按目标写；不够就续写补齐（最多 3 次），而不是整章重写。
+     为什么补齐而不是重写：重写要重付一次全章费用，还可能把已经写对的段落弄丢；
+     续写只补差额，成本低、可控。 */
+  const FILL_ROUNDS = 3;
+  const lowWater = Math.round(wordTarget * 0.95);
 
   for (let round = 0; round <= REPAIR_ROUNDS; round += 1) {
     const problems = round === 0 ? [] : gates.filter((g) => !g.ok).map((g) => ({ label: g.label, detail: g.detail }));
@@ -266,20 +276,24 @@ export async function writeChapter(id, index, opts = {}) {
     text = cleaned.text;
     tidyChanges = cleaned.changes;
 
-    // 明显偏短（不足目标 55%）时从断点续写一次，而不是整章重写
-    if (wordTarget && wordCount(text) < wordTarget * 0.55 && round === 0) {
+    // 严格字数：不足目标 95% 时续写补齐
+    while (wordTarget && wordPolicy !== 'loose' && wordCount(text) < lowWater && fills < FILL_ROUNDS) {
+      const need = wordTarget - wordCount(text);
+      if (need < 80) break;
+      const before = wordCount(text);
       try {
         const more = await complete({
           system: CHAPTER_SYSTEM,
-          user: chapterContinueUser({ book, chapter: entry, written: text, wordTarget }),
+          user: chapterContinueUser({ book, chapter: entry, written: text, wordTarget, need }),
         });
         const extra = tidyChapterBody(stripHeading(more)).text;
-        if (extra && wordCount(extra) > 200) {
-          text = `${text}\n\n${extra}`;
-          logger.info('novel.chapter.continued', { id, index: idx, before: wordCount(cleaned.text), after: wordCount(text) });
-        }
+        if (!extra || wordCount(extra) < 80) break;
+        text = `${text}\n\n${extra}`;
+        fills += 1;
+        logger.info('novel.chapter.fill', { id, index: idx, round, before, after: wordCount(text), target: wordTarget });
       } catch (e) {
-        logger.warn('novel.chapter.continue.fail', { id, index: idx, reason: e.message });
+        logger.warn('novel.chapter.fill.fail', { id, index: idx, reason: e.message });
+        break;
       }
     }
 
@@ -290,9 +304,12 @@ export async function writeChapter(id, index, opts = {}) {
     }
 
     scan = analyzeText(text);
-    const chapter = { index: idx, title: entry.title, text, words: wordCount(text), scan: { score: scan.score, grade: scan.grade }, gates: [] };
-    gates = chapterGates({ book, chapter, prev, maxScan: DRAFT_SCAN, freedom });
-    // 自由写作下门是建议：只有硬门（正文为空）没过才重写，不为风格问题烧额度
+    const chapter = {
+      index: idx, title: entry.title, text, words: wordCount(text),
+      targetWords: wordTarget, scan: { score: scan.score, grade: scan.grade }, gates: [],
+    };
+    gates = chapterGates({ book, chapter, prev, maxScan: DRAFT_SCAN, freedom, wordPolicy });
+    // 自由写作下门是建议；但字数在 strict 策略下是硬门，仍会触发重修
     const hardFailed = gates.filter((g) => g.severity === 'hard' && !g.ok);
     if (!hardFailed.length) { error = ''; break; }
     error = hardFailed.map((g) => g.label).join('、');
@@ -305,6 +322,23 @@ export async function writeChapter(id, index, opts = {}) {
   // 传人物表进去：有表就按表点名（准），没表才退回弱信号抽取
   const memory = analyzeChapter(entry.title, text, { cast: book.bible?.characters ?? [] });
 
+  // 连续性检查要用「写这一章之前的已出场人物」，比对基准是上一轮算好的 bookMemory，
+  // 避免把本章新出现的人名当成熟人。必须在构造 chapter 之前算完（chapter 要用它的结果）。
+  const cont = continuityCheck({
+    book: { ...book, memory: bookMemory },
+    chapter: { index: idx, memory },
+  });
+
+  /* 编造检测（确定性，只提示不拦）：
+     ① 冒出设定与大纲里都没有的人名；
+     ② 出现前文从未出现、且与世界规则无关的新地名。
+     两项都只能说明「可能是编造」，不能断言，所以只作为提醒，最终由人判断。 */
+  const knownPlaces = new Set([
+    ...(bookMemory.places ?? []),
+    ...(book.bible?.world ?? []).map((w) => String(w.rule ?? '')).join(' ').match(/[\u4e00-\u9fa5]{2,6}(?:码头|渡口|城|镇|村|街|巷|楼|院|厅|店|山|岛)/g) ?? [],
+  ]);
+  const newPlaces = (memory.places ?? []).filter((x) => !knownPlaces.has(x));
+
   const chapter = {
     index: idx,
     title: entry.title || `第${idx}章`,
@@ -316,6 +350,9 @@ export async function writeChapter(id, index, opts = {}) {
     memory,
     tidy: tidyChanges,
     targetWords: wordTarget,
+    wordPolicy,
+    fills,
+    invention: { characters: cont.newcomers, places: newPlaces },
     ok: gates.every((g) => g.severity !== 'hard' || g.ok),
     freedom,
     error,
@@ -323,10 +360,6 @@ export async function writeChapter(id, index, opts = {}) {
   };
 
   book.chapters = [...(book.chapters ?? []).filter((c) => c.index !== idx), chapter].sort((a, b) => a.index - b.index);
-
-  // 连续性检查要用「写这一章之前的已出场人物」，所以放在入册之后、重建记忆之前，
-  // 但比对基准取上一轮算好的 bookMemory，避免把本章新人名当成熟人。
-  const cont = continuityCheck({ book: { ...book, memory: bookMemory }, chapter });
 
   // 伏笔台账：本章埋的标 planted，到回收章且正文提到了标 paid，过章没提标 overdue
   updateForeshadow(book, chapter);
@@ -337,7 +370,14 @@ export async function writeChapter(id, index, opts = {}) {
 
   const advisories = [];
   if (cont.newcomers.length) {
-    advisories.push(`本章出现了设定与大纲里没有的名字：${cont.newcomers.join('、')}——如果不是有意新增角色，下一章要收回来`);
+    advisories.push(`可能编造：出现了设定与大纲里都没有的人名 ${cont.newcomers.join('、')}——如果不是有意新增角色，下一章要收回来，或改用已有角色重写`);
+  }
+  if (newPlaces.length) {
+    advisories.push(`可能编造：出现前文没有的地点 ${newPlaces.join('、')}——确认它在世界设定里成立，否则改回已出现的地点`);
+  }
+  const wordGate = gates.find((g) => g.id === 'words');
+  if (wordGate && !wordGate.ok && wordPolicy !== 'loose') {
+    advisories.push(`字数未达标：${wordGate.detail}。已自动续写 ${fills} 次，仍不足可再点一次「写这章」补齐，或在「目标字数」里放宽`);
   }
   const overdue = (book.outline?.foreshadow ?? []).filter((f) => f.status === 'overdue');
   if (overdue.length) {

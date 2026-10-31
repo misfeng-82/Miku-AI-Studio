@@ -332,14 +332,30 @@ export function confirmForeshadow(book, id) {
   return target;
 }
 
-/** 连续性检查：本章冒出的新人名是否在设定/大纲里（只提示，不拦） */
+/**
+ * 连续性检查：本章冒出的「新人名」是否在设定/大纲/前文里。
+ *
+ * 只提示不拦，而且要排掉「身份称谓」——「守夜人」「掌柜」「护士」这类不是名字，
+ * 是角色在场景里的身份，写出来完全正常。把称谓当编造报错，等于天天喊狼来了，
+ * 用户很快就会无视所有提示。只对「看起来像人名」的才提醒（2–3 字、不带称谓后缀）。
+ */
+const IDENTITY_SUFFIX = /(人|员|手|者|师|医|警|兵|客|主|父|母|叔|婶|哥|姐|弟|妹|爷|奶|总|长|官|头|佬|婆|工|匠|兵|差)$/;
+
 export function continuityCheck({ book, chapter }) {
   const known = new Set([
     ...(book?.bible?.characters ?? []).map((c) => c.name),
     ...(book?.outline?.chapters?.find((c) => c.index === chapter.index)?.characters ?? []),
     ...(book?.memory?.characters ?? []),
   ]);
+  // 没有任何已知人物（没生成设定集、也没有前文）：无从判断，别乱报警。
+  // 早先这里会把「沈砚」当成新人名报出来——空人物表时所有名字都「不在表里」。
+  if (!known.size) return { newcomers: [], known: [], note: '没有人物表，暂不判断是否编造' };
+
   const seen = chapter?.memory?.characters ?? [];
-  const newcomers = seen.filter((n) => !known.has(n));
+  const newcomers = seen.filter((n) => {
+    if (known.has(n)) return false;
+    if (IDENTITY_SUFFIX.test(n)) return false;   // 身份称谓不算编造
+    return n.length >= 2 && n.length <= 3;
+  });
   return { newcomers, known: [...known].slice(0, 20) };
 }

@@ -136,6 +136,13 @@ const CHAPTER_SYSTEM = `你是这部长篇的主笔。读者用「要不要继�
 不要写：${SUBTRACT.map((s) => s.name).join(' / ')} 里那些模板化的东西。
 要写：${ADD.map((a) => a.name).join(' / ')}——具体感官、无功能细节、潜台词、参差的段落。
 
+【不得编造（硬约束）】
+- 只使用任务里给出的人物、地点、组织、时间与规则；需要新角色时，用身份描述（"守夜人"）而不是起新名字。
+- 不得给已有设定加前史、加关系、加能力；不得写与本任务无关的"背景揭秘"。
+- 不得引入真实世界的机构、人物、作品、法律条文与统计数据来支撑虚构情节。
+- 具体数字（年份、金额、距离、时间）只在任务或前文出现过时才写；不确定就用模糊表述，不要编一个精确值。
+- 信息不足时宁可留白或写人物的困惑，也不要补一段看起来合理但没依据的内容。
+
 【人物与规则】
 - 每个人说话必须符合其 voice；主角不得越过自己的行为红线，越线必须是一次重大事件。
 - 使用世界规则时不要解释，让人物按规则行动，让读者自己拼。
@@ -181,19 +188,20 @@ __PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: w
  * 为什么单独做一次而不是让它「一开始写长点」：单次请求的注意力有限，
  * 长篇一次要求 4000 字常常前半段饱满、后半段赶工；分两次写反而更稳。
  */
-const chapterContinueUser = ({ book, chapter, written, wordTarget }) => `【已写部分（不要重写、不要复述）】
+const chapterContinueUser = ({ book, chapter, written, wordTarget, need }) => `【已写部分（不要重写、不要复述）】
 ${written.slice(-1500)}
 
 【目标章节】第 ${chapter.index} 章${chapter.title ? `《${chapter.title}》` : ''}
 ${chapter.goal ? `核心事件：${chapter.goal}` : ''}
 
-【任务】从上面中断的地方**接着往下写**，把这一章补到约 ${wordTarget} 字。
+【任务】从上面中断的地方**接着往下写**，把这一章补足：本章目标 ${wordTarget} 字，还差约 ${need} 字。
 - 只输出新增的正文，不要重复已写内容，不要重写开头，不要加「接上文」之类的说明。
-- 保持同一场景与同一条叙事线，不要突然跳到别的情节。
+- 保持同一场景与同一条叙事线，不要突然跳到别的情节，也不要为了凑字数注水。
+- 不要在结尾做总结。
 - 段落之间空行分隔，对话统一用中文引号「」。
 
 __TASK__: novelchapter
-__PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: wordTarget })}`;
+__PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: Math.max(300, Number(need) || wordTarget) })}`;
 
 export {
   BIBLE_SYSTEM, bibleUser,

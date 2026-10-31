@@ -1056,18 +1056,29 @@ t('小说：单章门齐全（1 道硬门 + 6 道建议），合格章全过', (
     + '门外有人敲了三下。';
   const chapter = { index: 1, text: body, words: wordCount(body), scan: { score: 30, grade: '良好' } };
   const g = chapterGates({ book: goodBook(), chapter, prev: null, maxScan: 55 });
-  assert.equal(g.length, 7, '正文存在 + 6 道建议');
-  assert.equal(g.filter((x) => x.severity === 'hard').length, 1, '自由写作下只有「正文存在」是硬门');
+  assert.equal(g.length, 7, '正文存在 + 篇幅 + 5 道建议');
+  const hard = g.filter((x) => x.severity === 'hard').map((x) => x.id).sort();
+  assert.deepEqual(hard, ['has-text', 'words'], '严格字数下硬门是「正文存在 + 本章字数」');
   const bad = g.filter((x) => !x.ok);
   assert.equal(bad.length, 0, `未过：${bad.map((x) => `${x.label}(${x.detail})`).join('、')}`);
 });
 
-t('小说：自由写作下字数不设限，纪律模式才按 ±25% 卡', () => {
+t('小说：字数默认严格（95%–115%），loose 才只报数', () => {
   const body = '短。';
-  const free = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null });
-  assert.equal(free.find((x) => x.id === 'words').ok, true, '自由写作不判字数');
-  const strict = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null, freedom: false });
-  assert.equal(strict.find((x) => x.id === 'words').ok, false, '纪律模式应判字数');
+  const strict = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null });
+  const gate = strict.find((x) => x.id === 'words');
+  assert.equal(gate.ok, false, '默认严格，字数不够应判错');
+  assert.equal(gate.severity, 'hard', '严格模式下字数是硬门');
+
+  const loose = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null, wordPolicy: 'loose' });
+  assert.equal(loose.find((x) => x.id === 'words').ok, true, 'loose 不判字数');
+});
+
+t('小说：字数超标（>115%）也要提示', () => {
+  const long = '字'.repeat(4000);
+  const g = chapterGates({ book: goodBook(), chapter: { text: long, scan: { score: 20 } }, prev: null }).find((x) => x.id === 'words');
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /偏多/);
 });
 
 t('小说：长段收尾且无悬念信号 → 钩子门挂；短句收尾 → 过', () => {

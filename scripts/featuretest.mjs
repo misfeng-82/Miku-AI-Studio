@@ -928,7 +928,7 @@ await t('POST /api/novels/:id/chapter 写第 1 章（含扫描与六道单章门
   truthy(typeof ch.scan.score === 'number', '应带 AI 痕迹分');
   eq(r.data.gates.length, 7, '单章门条数（1 硬 + 6 建议）');
   truthy(r.data.gates.every((g) => g.severity), '每道门都要带 severity');
-  eq(r.data.gates.filter((g) => g.severity === 'hard').length, 1, '自由写作下只有 1 道硬门');
+  eq(r.data.gates.filter((g) => g.severity === 'hard').length, 2, '严格字数下硬门为「正文存在 + 本章字数」');
   const failedHard = r.data.gates.filter((g) => g.severity === 'hard' && !g.ok).map((g) => g.label);
   eq(failedHard.length, 0, `硬门不该挂，实际：${failedHard.join('、')}`);
   return `${ch.words} 字 · AI 痕迹 ${ch.scan.score} · 6/6 门`;
@@ -963,6 +963,24 @@ await t('目标字数显式传 0 表示不设目标', async () => {
   eq(r.data.chapter.targetWords, null, '0 应解释为不设目标');
   truthy(r.data.chapter.words > 0, '仍应写出正文');
   return `不设目标 · ${r.data.chapter.words} 字`;
+});
+
+await t('字数严格：默认落在目标 95%–115%', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const ch = r.data.book.chapters.find((c) => c.index === 1);
+  eq(ch.wordPolicy, 'strict', '默认字数策略应为严格');
+  const low = ch.targetWords * 0.95;
+  truthy(ch.words >= low, `实际 ${ch.words} 不应低于 ${Math.round(low)}`);
+  truthy(ch.words <= ch.targetWords * 1.15, `实际 ${ch.words} 不应高于 ${Math.round(ch.targetWords * 1.15)}`);
+  return `${ch.words}/${ch.targetWords} 字`;
+});
+
+await t('编造检测结果随章节返回（可为空）', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const ch = r.data.book.chapters.find((c) => c.index === 1);
+  truthy(ch.invention && Array.isArray(ch.invention.characters) && Array.isArray(ch.invention.places), '应返回编造检测结构');
+  truthy(Array.isArray(ch.tidy), '应返回排版清理结果');
+  return `人物 ${ch.invention.characters.length} · 地点 ${ch.invention.places.length}`;
 });
 
 await t('写章后自动提炼连续性记忆', async () => {

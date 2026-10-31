@@ -107,7 +107,7 @@ export function bookGates(book, opts = {}) {
  * 单章门禁：字数是骨架，钩子是留存，对话是密度，AI 痕迹是味道。
  * prev 传上一章，用来查「两章开头不能一个模子」。
  */
-export function chapterGates({ book, chapter, prev = null, maxScan = 55, freedom = true } = {}) {
+export function chapterGates({ book, chapter, prev = null, maxScan = 55, freedom = true, wordPolicy = 'strict' } = {}) {
   const gates = [];
   /**
    * 自由写作（默认）：全部标记为 soft —— 只报告，不拦。
@@ -124,14 +124,19 @@ export function chapterGates({ book, chapter, prev = null, maxScan = 55, freedom
 
   const per = Number(book?.wordsPerChapter) || 3000;
 
-  /* 1. 篇幅：自由写作下只报字数，不判偏差；开纪律模式才按 ±25% 卡 */
-  const low = Math.round(per * 0.75);
-  const high = Math.round(per * 1.25);
-  add('words', freedom ? '篇幅参考' : '本章字数',
-    freedom ? true : words >= low && words <= high,
-    freedom
-      ? `${words} 字（篇幅由内容决定，参考 ${per} 字，不设上下限）`
-      : `${words} 字（目标 ${per}，允许 ${low}–${high}）`);
+  /* 1. 篇幅：默认「严格」——不足 95% 或超出 115% 都算没过。
+     strict 是硬门（会触发续写补齐）；loose 只报数不判。 */
+  const target = Number(chapter?.targetWords) || per;
+  const low = Math.round(target * 0.95);
+  const high = Math.round(target * 1.15);
+  const strict = wordPolicy !== 'loose';
+  add('words',
+    strict ? '本章字数' : '篇幅参考',
+    strict ? (words >= low && words <= high) : true,
+    strict
+      ? `${words} 字（目标 ${target}，允许 ${low}–${high}${words < low ? '；偏少，应继续写' : words > high ? '；偏多，建议删减' : ''}）`
+      : `${words} 字（篇幅由内容决定，参考 ${target} 字，不设上下限）`,
+    strict ? 'hard' : (freedom ? 'soft' : 'hard'));
 
   /* 2. 钩子：末段要留东西。
    *    两种都算合格：

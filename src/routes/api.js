@@ -559,6 +559,7 @@ api.post('/api/novels/:id/chapter', async (req, res) => {
     wordTarget: b.wordTarget === undefined || b.wordTarget === null ? undefined
       : requireInt(b.wordTarget, 'wordTarget', { min: 0, max: 50000, fallback: undefined }),
     freedom: b.freedom === undefined ? undefined : Boolean(b.freedom),
+    wordPolicy: b.wordPolicy === 'loose' ? 'loose' : b.wordPolicy === 'strict' ? 'strict' : undefined,
   }));
 });
 

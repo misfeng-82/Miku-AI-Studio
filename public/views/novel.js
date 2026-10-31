@@ -1,5 +1,5 @@
 /* 视图域：小说创作 —— 长篇（设定集 → 章纲 → 逐章正文） */
-import { state, save, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download } from '../core.js';
+import { state, save, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download, copyText } from '../core.js';
 
 const GENRES = ['悬疑', '都市', '古风', '科幻', '玄幻', '现实'];
 const AUDIENCES = ['男频', '女频', '通用'];
@@ -132,6 +132,7 @@ function outlineCard(b) {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           ${chapterTag(ch)}
+          ${ch?.text ? `<button class="btn btn-sm" data-copychapter="${c.index}" title="复制这一章完整正文">${ICONS.copy}</button>` : ''}
           <button class="btn btn-sm" data-novelwrite="${c.index}">${ch?.text ? '重写' : '写这章'}</button>
         </div>
       </div>`;
@@ -168,6 +169,26 @@ function latestChapterCard(b) {
       ${state.data.novel.advisories.map((a) => esc(a)).join('<br>')}</div></div>` : ''}
     <div class="pblock" style="margin-top:12px"><div class="pblock-head"><span class="ph-name">chapter ${ch.index}</span><span class="tag outline">${ch.words} 字</span></div>
       <div class="pblock-body" style="max-height:260px;overflow:auto">${esc(ch.text.slice(0, 1200))}${ch.text.length > 1200 ? '…' : ''}</div></div>
+  </div>`;
+}
+
+/* ================= 已写章节（每章一键复制） ================= */
+function writtenCard(b) {
+  const list = [...(b.chapters ?? [])].filter((c) => c.text).sort((a, z) => a.index - z.index);
+  if (!list.length) return '';
+  return `<div class="card">
+    <div class="card-head"><div><h2>已写章节</h2><div class="sub">${list.length} 章 · 每章可单独复制完整正文</div></div>
+      <button class="btn btn-sm" data-copyall="${esc(b.id)}">${ICONS.copy}复制全书</button></div>
+    <div class="rows">${list.map((c) => `<div class="row" style="grid-template-columns:1fr auto;align-items:center">
+      <div style="min-width:0">
+        <div class="row-title" style="font-size:11.5px">第${c.index}章 ${esc(c.title || '')}</div>
+        <div class="row-sub">${c.words} 字${c.targetWords ? ` / 目标 ${c.targetWords}` : ''}${c.fills ? ` · 续写 ${c.fills} 次` : ''}${c.scan ? ` · AI 痕迹 ${c.scan.score}` : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" data-copychapter="${c.index}" title="复制这一章完整正文">${ICONS.copy}复制</button>
+        <button class="btn btn-sm" data-novelwrite="${c.index}" title="重写这一章">${ICONS.refresh}</button>
+      </div>
+    </div>`).join('')}</div>
   </div>`;
 }
 
@@ -257,8 +278,14 @@ function targetCard(b) {
     <div class="form-2" style="margin-top:12px">
       <label class="field"><span class="fl">目标字数（留空 = 按本书单章 ${b.wordsPerChapter || 3000} 字）</span>
         <input type="number" min="0" step="500" data-cfg="novelWordTarget" value="${esc(c.novelWordTarget)}" placeholder="${b.wordsPerChapter || 3000}" /></label>
-      <div class="field"><span class="fl">说明</span>
-        <div class="muted" style="font-size:11px;line-height:1.7">留空按本书单章字数瞄准；填 <b>0</b> 才是完全不设目标。写短了会自动续写一次补齐，写长不拦。</div>
+      <div class="field"><span class="fl">字数策略</span>
+        <div class="chip-row">
+          <button class="chip ${c.novelWordPolicy !== 'loose' ? 'active' : ''}" data-wordpolicy="strict" title="不足 95% 自动续写补齐；超出 115% 提示删减">严格</button>
+          <button class="chip ${c.novelWordPolicy === 'loose' ? 'active' : ''}" data-wordpolicy="loose" title="只报字数，不判偏差">参考</button>
+        </div>
+        <div class="muted" style="font-size:10.5px;line-height:1.6;margin-top:6px">
+          严格：必须落在目标 95%–115%，不足自动续写补齐（最多 3 次）；留空按本书单章 ${b.wordsPerChapter || 3000} 字。
+        </div>
       </div>
     </div>
 
@@ -307,6 +334,7 @@ function workbench(b) {
   ${bibleCard(b)}
   ${outlineCard(b)}
   ${latestChapterCard(b)}
+  ${writtenCard(b)}
   ${memoryCard(b)}`;
 }
 
@@ -358,6 +386,7 @@ export const runners = {
       brief: String(cfg().novelBrief || '').trim(),
       wordTarget,
       freedom: Boolean(cfg().novelFreedom),
+      wordPolicy: cfg().novelWordPolicy === 'loose' ? 'loose' : 'strict',
     });
     const ch = r.chapter;
     const full = await api.novel(b.id);
@@ -430,6 +459,23 @@ export const runners = {
     else toast(`第 ${index} 章已保存，但有门没过：${ch.error}`, 'warn', 4000);
   },
 };
+
+/** 复制某一章的完整正文（找不到就提示，不静默失败） */
+export async function copyChapter(index) {
+  const ch = book()?.chapters?.find((c) => c.index === Number(index));
+  if (!ch?.text) return toast('这一章还没写', 'warn');
+  await copyText(ch.text, `已复制第 ${ch.index} 章（${ch.words} 字）`);
+}
+
+/** 复制全书（按章拼接，带章标题，方便直接贴到别处） */
+export async function copyAll() {
+  const b = book();
+  if (!b) return;
+  const list = [...(b.chapters ?? [])].filter((c) => c.text).sort((a, z) => a.index - z.index);
+  if (!list.length) return toast('还没有写任何章节', 'warn');
+  const text = list.map((c) => `第${c.index}章 ${c.title || ''}\n\n${c.text}`).join('\n\n');
+  await copyText(text, `已复制全书 ${list.length} 章（${list.reduce((n, c) => n + (c.words || 0), 0)} 字）`);
+}
 
 /** 人工确认某条伏笔已回收 */
 export async function confirmFore(id, fid) {

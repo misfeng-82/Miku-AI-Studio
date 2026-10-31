@@ -146,6 +146,8 @@ export const state = {
     novelAudience: '男频', novelTone: '', novelForbidden: '',
     // 目标章节：章号/标题/这一章要写什么/目标字数/自由写作（默认不设限）
     novelChapter: 1, novelChapterTitle: '', novelBrief: '', novelWordTarget: '', novelFreedom: true,
+    // 字数策略：strict = 必须落在目标 95%–115%（默认）；loose = 只报数
+    novelWordPolicy: 'strict',
   },
   data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null, novel: null },
   busy: {},
