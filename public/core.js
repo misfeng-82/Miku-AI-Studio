@@ -144,6 +144,8 @@ export const state = {
     // 小说创作：立项表单
     novelTitle: '', novelGenre: '悬疑', novelLogline: '', novelTarget: 200000, novelPer: 3000,
     novelAudience: '男频', novelTone: '', novelForbidden: '',
+    // 目标章节：章号/标题/这一章要写什么/目标字数/自由写作（默认不设限）
+    novelChapter: 1, novelChapterTitle: '', novelBrief: '', novelWordTarget: '', novelFreedom: true,
   },
   data: { hot: null, inputs: {}, genflow: null, eval: null, checkup: null, usage: null, opt: null, assets: null, linebook: null, split: null, tpl: null, compare: null, stats: null, relations: null, titles: null, polish: null, fmt: null, importError: null, shots: null, shotsMap: {}, library: null, deai: null, novel: null },
   busy: {},
@@ -275,12 +277,19 @@ export function scoreRing(score) {
 
 /* 质量门列表 */
 export function gateList(gates) {
-  return `<div class="gate-list">${gates.map((g) => `
-    <div class="gate ${g.ok ? 'gate-ok' : 'gate-fail'}">
-      <span class="gate-icon">${g.ok ? ICONS.check : ICONS.x}</span>
+  return `<div class="gate-list">${gates.map((g) => {
+    // 建议型门（severity:'soft'）没过时不打红叉：它只是提示，不阻断写作。
+    // 自由写作模式下几乎所有门都是建议，红一片会让人误以为稿子废了。
+    const soft = !g.ok && g.severity === 'soft';
+    const cls = g.ok ? 'gate-ok' : soft ? 'gate-soft' : 'gate-fail';
+    const icon = g.ok ? ICONS.check : soft ? ICONS.alert : ICONS.x;
+    const scope = soft ? '建议' : (g.scope ?? '');
+    return `<div class="gate ${cls}">
+      <span class="gate-icon">${icon}</span>
       <span><span class="gate-name">${esc(g.label)}</span>${g.detail ? `<div class="gate-detail">${esc(g.detail)}</div>` : ''}</span>
-      <span class="gate-scope">${esc(g.scope ?? '')}</span>
-    </div>`).join('')}</div>`;
+      <span class="gate-scope">${esc(scope)}</span>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 /* 条形图 */

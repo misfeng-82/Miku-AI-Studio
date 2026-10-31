@@ -546,6 +546,10 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 .gate-name { font-size: 11.5px; font-weight: 600; }
 .gate-detail { font-size: 10.5px; color: var(--text-3); margin-top: 2px; line-height: 1.55; }
 .gate-fail .gate-detail { color: var(--red); }
+/* 建议型门（自由写作下的引导项）：只提示不拦，用琥珀色区分于「不合格」 */
+.gate-soft { background: var(--amber-bg); border-color: rgba(133, 79, 11, .18); }
+.gate-soft .gate-icon { color: var(--amber); }
+.gate-soft .gate-detail { color: var(--amber); }
 .gate-scope {
   font-family: var(--mono); font-size: 8.5px; font-weight: 700; letter-spacing: .08em;
   color: var(--text-4); border: 1px solid var(--border-2); border-radius: var(--r-xs);

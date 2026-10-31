@@ -8,6 +8,11 @@
  *
  * 与剧本门的关系：形状不同，口径一致——都是纯函数、都返回
  * {id,label,ok,detail}，可以直接和 24 道剧本门并列展示。
+ *
+ * 【自由写作】
+ *   章节写作不设限：不限定章数、篇幅、结构、风格。所以这里的「门」默认是**建议**
+ *   （severity: 'soft'），只报告不拦截；硬拦的只有一条——正文为空。
+ *   需要纪律的人可以把自由写作关掉，那时字数/钩子/对话/承接才变成硬门。
  */
 
 const SUMMARY_SIGNALS = ['终于明白', '终于懂了', '从这一刻起', '从此', '他知道', '她明白', '原来这一切'];
@@ -27,9 +32,11 @@ export function wordCount(text) {
  * 设定集门禁：立项 + 人物 + 世界观 + 大纲 + 伏笔 + 结局。
  * 这一层在写正文之前跑，避免「先写十万字才发现大纲不成立」。
  */
-export function bookGates(book) {
+export function bookGates(book, opts = {}) {
+  const freedom = opts.freedom !== false; // 默认自由：章节数由作者决定
   const gates = [];
-  const add = (id, label, ok, detail) => gates.push({ id, label, ok: Boolean(ok), detail });
+  /** severity: hard 会挡住下一步；soft 只是建议 */
+  const add = (id, label, ok, detail, severity = 'soft') => gates.push({ id, label, ok: Boolean(ok), detail, severity });
 
   /* 1. 立项：书名与一句话故事 */
   const title = String(book?.title ?? '').trim();
@@ -63,10 +70,13 @@ export function bookGates(book) {
   const target = Number(book?.targetWords) || 0;
   const fit = per > 0 ? target / per : 0;
   const scaleOk = chapters.length > 0 && fit > 0 && Math.abs(chapters.length - fit) / fit <= 0.25;
-  add('scale', '篇幅匹配',
-    scaleOk,
+  // 自由写作下不限定章数：只把「规划字数」和「已排章数」摆出来给人参考
+  add('scale', freedom ? '篇幅参考' : '篇幅匹配',
+    freedom ? true : scaleOk,
     chapters.length
-      ? `${chapters.length} 章 × ${per} 字 = ${chapters.length * per} 字，目标 ${target} 字${scaleOk ? '' : `（够不到，应约 ${Math.round(fit)} 章）`}`
+      ? (freedom
+        ? `已排 ${chapters.length} 章，按每章 ${per} 字约 ${chapters.length * per} 字；目标 ${target} 字（章数不设限，随时可以加）`
+        : `${chapters.length} 章 × ${per} 字 = ${chapters.length * per} 字，目标 ${target} 字${scaleOk ? '' : `（够不到，应约 ${Math.round(fit)} 章）`}`)
       : '还没生成章纲');
 
   /* 5. 章纲四要素：目标 / 冲突 / 钩子 —— 缺一个这一章就是水 */
@@ -97,18 +107,31 @@ export function bookGates(book) {
  * 单章门禁：字数是骨架，钩子是留存，对话是密度，AI 痕迹是味道。
  * prev 传上一章，用来查「两章开头不能一个模子」。
  */
-export function chapterGates({ book, chapter, prev = null, maxScan = 55 } = {}) {
+export function chapterGates({ book, chapter, prev = null, maxScan = 55, freedom = true } = {}) {
   const gates = [];
-  const add = (id, label, ok, detail) => gates.push({ id, label, ok: Boolean(ok), detail });
+  /**
+   * 自由写作（默认）：全部标记为 soft —— 只报告，不拦。
+   * 关掉自由写作：字数/钩子/对话/承接/结尾变硬门（AI 痕迹仍是建议，因为它是风格问题）。
+   */
+  const add = (id, label, ok, detail, severity = freedom ? 'soft' : 'hard') =>
+    gates.push({ id, label, ok: Boolean(ok), detail, severity });
 
   const text = String(chapter?.text ?? '');
   const words = wordCount(text);
+
+  /* 唯一的硬门：正文得存在。自由写作不是「什么都不写也算过」。 */
+  add('has-text', '正文存在', words >= 200, words ? `${words} 字` : '没有正文', 'hard');
+
   const per = Number(book?.wordsPerChapter) || 3000;
 
-  /* 1. 字数：±25%。短了是偷工，长了是没节制 */
+  /* 1. 篇幅：自由写作下只报字数，不判偏差；开纪律模式才按 ±25% 卡 */
   const low = Math.round(per * 0.75);
   const high = Math.round(per * 1.25);
-  add('words', '本章字数', words >= low && words <= high, `${words} 字（目标 ${per}，允许 ${low}–${high}）`);
+  add('words', freedom ? '篇幅参考' : '本章字数',
+    freedom ? true : words >= low && words <= high,
+    freedom
+      ? `${words} 字（篇幅由内容决定，参考 ${per} 字，不设上下限）`
+      : `${words} 字（目标 ${per}，允许 ${low}–${high}）`);
 
   /* 2. 钩子：末段要留东西。
    *    两种都算合格：
@@ -145,9 +168,9 @@ export function chapterGates({ book, chapter, prev = null, maxScan = 55 } = {}) 
 
   /* 5. AI 痕迹：复用「去 AI 味」的 13 维扫描结果，不另算一套 */
   if (chapter?.scan && typeof chapter.scan.score === 'number') {
-    add('deai', 'AI 痕迹', chapter.scan.score <= maxScan, `AI 痕迹分 ${chapter.scan.score} ${chapter.scan.score <= maxScan ? '≤' : '>'} ${maxScan}`);
+    add('deai', 'AI 痕迹', chapter.scan.score <= maxScan, `AI 痕迹分 ${chapter.scan.score} ${chapter.scan.score <= maxScan ? '≤' : '>'} ${maxScan}`, 'soft');
   } else {
-    add('deai', 'AI 痕迹', false, '还没有扫描结果');
+    add('deai', 'AI 痕迹', false, '还没有扫描结果', 'soft');
   }
 
   /* 6. 结尾不能自我总结：那是 AI 最典型的收尾方式 */
@@ -170,6 +193,8 @@ export function readiness(book) {
     biblePass: pass,
     bibleTotal: bg.length,
     bibleReady: pass === bg.length,
+    // 自由写作下设定不全也能写：只是提示「缺什么」，不是前置条件
+    freedom: book?.freedom !== false,
     written,
     planned,
     clean,

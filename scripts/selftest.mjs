@@ -1020,11 +1020,18 @@ t('小说：完整设定集 8 道门全过', () => {
   assert.equal(bad.length, 0, `未过：${bad.map((x) => x.label).join('、')}`);
 });
 
-t('小说：没排章纲时，篇幅/章纲/伏笔三道门必须挂', () => {
+t('小说：没排章纲时，章纲/伏笔门要给出提示（自由写作下不拦）', () => {
   const b = goodBook();
   b.outline = null;
-  const failed = bookGates(b).filter((g) => !g.ok).map((g) => g.id);
-  for (const id of ['scale', 'beats', 'foreshadow']) assert.ok(failed.includes(id), `应挂 ${id}`);
+  const freedomGates = bookGates(b);
+  for (const id of ['beats', 'foreshadow']) {
+    assert.ok(freedomGates.find((g) => g.id === id && !g.ok), `应提示 ${id}`);
+  }
+  // 章数不再硬性要求：自由写作下「篇幅」只报参考
+  assert.equal(freedomGates.find((g) => g.id === 'scale').ok, true, '自由写作下篇幅不应判错');
+  assert.equal(freedomGates.find((g) => g.id === 'scale').severity, 'soft');
+  // 关掉自由写作才回到「篇幅必须匹配」
+  assert.equal(bookGates(b, { freedom: false }).find((g) => g.id === 'scale').ok, false);
 });
 
 t('小说：伏笔只埋不收要被拦下', () => {
@@ -1035,28 +1042,31 @@ t('小说：伏笔只埋不收要被拦下', () => {
   assert.match(g.detail, /没回收/);
 });
 
-t('小说：章数装不下目标字数要被拦下', () => {
+t('小说：纪律模式下章数装不下目标字数才判错', () => {
   const b = goodBook();
   b.targetWords = 200000;   // 20 章 × 3000 只有 6 万，差得远
-  const g = bookGates(b).find((x) => x.id === 'scale');
+  const g = bookGates(b, { freedom: false }).find((x) => x.id === 'scale');
   assert.equal(g.ok, false);
   assert.match(g.detail, /够不到/);
 });
 
-t('小说：单章六道门齐全，合格章全过', () => {
+t('小说：单章门齐全（1 道硬门 + 6 道建议），合格章全过', () => {
   const body = '他把票根摊开。\n\n「今晚开闸吗。」\n\n没开。守夜人摇头，电筒照在他脸上。\n\n'.repeat(90)
     + '门外有人敲了三下。';
   const chapter = { index: 1, text: body, words: wordCount(body), scan: { score: 30, grade: '良好' } };
   const g = chapterGates({ book: goodBook(), chapter, prev: null, maxScan: 55 });
-  assert.equal(g.length, 6);
+  assert.equal(g.length, 7, '正文存在 + 6 道建议');
+  assert.equal(g.filter((x) => x.severity === 'hard').length, 1, '自由写作下只有「正文存在」是硬门');
   const bad = g.filter((x) => !x.ok);
   assert.equal(bad.length, 0, `未过：${bad.map((x) => `${x.label}(${x.detail})`).join('、')}`);
 });
 
-t('小说：字数偏离 ±25% 要被拦下', () => {
+t('小说：自由写作下字数不设限，纪律模式才按 ±25% 卡', () => {
   const body = '短。';
-  const g = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null });
-  assert.equal(g.find((x) => x.id === 'words').ok, false);
+  const free = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null });
+  assert.equal(free.find((x) => x.id === 'words').ok, true, '自由写作不判字数');
+  const strict = chapterGates({ book: goodBook(), chapter: { text: body, scan: { score: 20 } }, prev: null, freedom: false });
+  assert.equal(strict.find((x) => x.id === 'words').ok, false, '纪律模式应判字数');
 });
 
 t('小说：长段收尾且无悬念信号 → 钩子门挂；短句收尾 → 过', () => {

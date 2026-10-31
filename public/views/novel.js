@@ -1,5 +1,5 @@
 /* 视图域：小说创作 —— 长篇（设定集 → 章纲 → 逐章正文） */
-import { state, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download } from '../core.js';
+import { state, save, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download } from '../core.js';
 
 const GENRES = ['悬疑', '都市', '古风', '科幻', '玄幻', '现实'];
 const AUDIENCES = ['男频', '女频', '通用'];
@@ -217,6 +217,67 @@ function memoryCard(b) {
   </div>`;
 }
 
+/* ================= 目标章节 ================= */
+/**
+ * 「目标章节」是这一版的核心入口：先决定写哪一章、这一章要发生什么，再动笔。
+ * 它不要求先有完整大纲，也不限定章数/篇幅/结构/风格——门禁全部降为建议。
+ */
+function nextIndex(b) {
+  const written = (b.chapters ?? []).map((c) => c.index);
+  const planned = (b.outline?.chapters ?? []).map((c) => c.index);
+  const max = Math.max(0, ...written, ...planned);
+  return max + 1;
+}
+
+function targetCard(b) {
+  const c = cfg();
+  const idx = Number(c.novelChapter) > 0 ? Number(c.novelChapter) : nextIndex(b);
+  const writing = state.busy.novelWrite;
+
+  return `<div class="card">
+    <div class="card-head">
+      <div><h2>目标章节</h2><div class="sub">先定「写哪一章、这一章要发生什么」，再动笔。不要求先有大纲，也不限定章数与篇幅</div></div>
+      <div class="chip-row">
+        <span class="tag ${c.novelFreedom ? 'teal' : 'amber'}">${c.novelFreedom ? '自由写作 · 不设限' : '纪律模式 · 按门改'}</span>
+        <button class="chip ${c.novelFreedom ? 'active' : ''}" data-novelfree="1">自由</button>
+        <button class="chip ${c.novelFreedom ? '' : 'active'}" data-novelfree="0">纪律</button>
+      </div>
+    </div>
+
+    <div class="form-2">
+      <label class="field"><span class="fl">第几章</span>
+        <input type="number" min="1" max="2000" data-cfg="novelChapter" value="${idx}" placeholder="${idx}" /></label>
+      <label class="field"><span class="fl">章标题（可空）</span>
+        <input type="text" data-cfg="novelChapterTitle" value="${esc(c.novelChapterTitle)}" placeholder="如：雾" /></label>
+    </div>
+
+    <label class="field" style="margin-top:12px"><span class="fl">这一章要写什么（可空；写了会优先遵守）</span>
+      <textarea rows="2" data-cfg="novelBrief" placeholder="如：他第一次开那扇门，代价是交出一个名字；结束时门外有人等他。">${esc(c.novelBrief)}</textarea></label>
+
+    <div class="form-2" style="margin-top:12px">
+      <label class="field"><span class="fl">目标字数（可空 = 由内容决定）</span>
+        <input type="number" min="0" step="500" data-cfg="novelWordTarget" value="${esc(c.novelWordTarget)}" placeholder="不填就是不设限" /></label>
+      <div class="field"><span class="fl">建议</span>
+        <div class="muted" style="font-size:11px;line-height:1.7">写长写短都行，写到大纲以外也行（会自动补进章纲列表）。</div>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:14px">
+      ${busyBtn('novelWriteTarget', `写第 ${idx} 章`, 'pen')}
+      ${(b.chapters ?? []).some((x) => x.index === idx) ? '<span class="muted" style="font-size:10.5px">这一章已有稿，再点会覆盖</span>' : ''}
+    </div>
+
+    <div class="notice notice-info" style="margin-top:14px">${ICONS.doc}<div style="line-height:1.75">
+      <b>目标章节要包含什么</b>：一个核心事件（这一章到底改变了什么）；与上一章的因果承接（为什么现在发生）；
+      人物当下的欲望与阻力；一个落点（不必是钩子，但要让人愿意往下翻）。<br>
+      <b>它和别的部分的关系</b>：受设定集约束（人物欲望/缺陷/语言指纹、世界规则的代价）；推进大纲主线；
+      可以埋也可以收伏笔（台账会自动记）；与「连续性记忆」保持一致，不凭空改设定、不复活已死的人。<br>
+      <b>输出形式</b>：纯正文 Markdown，不带章标题、不带修改记录、不带解释；标题单独存在章节信息里，
+      导出时再拼成「第N章 标题」。
+    </div></div>
+  </div>`;
+}
+
 /* ================= 工作台 ================= */
 function workbench(b) {
   const r = readiness() ?? {};
@@ -242,6 +303,7 @@ function workbench(b) {
       模型只负责写，不负责评判自己写得对不对；正文另过 6 道单章门（字数/钩子/对话/承接/AI 痕迹/结尾）。
     </div>
   </div>
+  ${targetCard(b)}
   ${bibleCard(b)}
   ${outlineCard(b)}
   ${latestChapterCard(b)}
@@ -284,6 +346,35 @@ function needlive(r) {
 }
 
 export const runners = {
+  async novelWriteTarget() {
+    const b = book();
+    if (!b) return toast('先选一本书', 'warn');
+    const idx = Number(cfg().novelChapter) || nextIndex(b);
+    const wordTarget = Number(cfg().novelWordTarget) > 0 ? Number(cfg().novelWordTarget) : null;
+    const r = await api.novelChapter(b.id, idx, {
+      title: String(cfg().novelChapterTitle || '').trim(),
+      brief: String(cfg().novelBrief || '').trim(),
+      wordTarget,
+      freedom: Boolean(cfg().novelFreedom),
+    });
+    const ch = r.chapter;
+    const full = await api.novel(b.id);
+    state.data.novel = {
+      ...(state.data.novel ?? {}),
+      book: full.book,
+      gates: full.gates,
+      readiness: full.readiness,
+      advisories: r.advisories ?? [],
+    };
+    // 写完之后把目标章号顺延，方便连着写
+    state.cfg.novelChapter = idx + 1;
+    state.cfg.novelChapterTitle = '';
+    state.cfg.novelBrief = '';
+    save();
+    const soft = (r.gates ?? []).filter((g) => !g.ok).length;
+    toast(`第 ${idx} 章写完：${ch.words} 字${soft ? `，${soft} 条建议可看` : '，无可挑剔'}`);
+  },
+
   async novelCreate() {
     const c = cfg();
     if (!String(c.novelTitle || '').trim()) return toast('先起一个书名', 'warn');

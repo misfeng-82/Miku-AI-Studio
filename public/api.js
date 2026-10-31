@@ -93,7 +93,7 @@ export const api = {
   novelDelete: (id) => request('DELETE', `/api/novels/${id}`),
   novelBible: (id) => request('POST', `/api/novels/${id}/bible`, {}),
   novelOutline: (id) => request('POST', `/api/novels/${id}/outline`, {}),
-  novelChapter: (id, index) => request('POST', `/api/novels/${id}/chapter`, { index }),
+  novelChapter: (id, index, extra = {}) => request('POST', `/api/novels/${id}/chapter`, { index, ...extra }),
   novelExport: (id) => request('GET', `/api/novels/${id}/export`),
   novelForeshadow: (id, fid) => request('POST', `/api/novels/${id}/foreshadow`, { id: fid }),
   titles: (b) => request('POST', '/api/titles', b),

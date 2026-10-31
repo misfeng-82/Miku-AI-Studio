@@ -190,15 +190,46 @@ function stripHeading(text) {
     .trim();
 }
 
-export async function writeChapter(id, index) {
+/**
+ * 写一章。
+ *
+ * 默认是**自由写作**：不要求先排章纲，也不要求章号在大纲里——
+ * 「目标章节」可以是第 3 章，也可以是第 47 章，甚至是还没规划的第 99 章。
+ * 只有把自由写作关掉（freedom:false），才回到「必须按大纲写」的纪律模式。
+ */
+export async function writeChapter(id, index, opts = {}) {
   const book = repo.getNovel(id);
-  if (!book.outline?.chapters?.length) throw badRequest('先排章纲，再写正文');
+  const freedom = opts.freedom !== undefined ? Boolean(opts.freedom) : book.freedom !== false;
 
   const idx = Number(index);
-  const entry = book.outline.chapters.find((c) => c.index === idx);
-  if (!entry) throw notFound(`大纲里没有第 ${idx} 章`);
+  if (!Number.isFinite(idx) || idx < 1) throw badRequest('章号要从 1 开始');
+  if (!freedom && !book.outline?.chapters?.length) throw badRequest('先排章纲，再写正文');
 
-  const existing = (book.chapters ?? []).find((c) => c.index === idx);
+  let entry = book.outline?.chapters?.find((c) => c.index === idx);
+  if (!entry) {
+    if (!freedom) throw notFound(`大纲里没有第 ${idx} 章`);
+    // 自由写作 + 目标章节不在大纲里：按作者给的信息就地建档，并补进大纲列表
+    entry = {
+      index: idx,
+      title: String(opts.title ?? '').trim() || '',
+      goal: String(opts.brief ?? '').trim(),
+      conflict: '',
+      turn: '',
+      hook: '',
+      characters: [],
+      adhoc: true,
+    };
+    book.outline = book.outline ?? { chapters: [], foreshadow: [], volumes: [] };
+    book.outline.chapters = [...(book.outline.chapters ?? []), entry].sort((a, b) => a.index - b.index);
+  } else if (String(opts.brief ?? '').trim()) {
+    // 作者补充优先：临时覆盖本章的目标，不动大纲原文
+    entry = { ...entry, goal: String(opts.brief).trim() };
+  }
+  if (String(opts.title ?? '').trim()) entry = { ...entry, title: String(opts.title).trim() };
+
+  const wordTarget = Number(opts.wordTarget) > 0 ? Number(opts.wordTarget) : null;
+  const brief = String(opts.brief ?? '').trim();
+
   const prev = (book.chapters ?? []).find((c) => c.index === idx - 1) ?? null;
 
   // 动笔前先取「前面写过什么」：连续性是长篇最容易崩的地方，
@@ -218,7 +249,10 @@ export async function writeChapter(id, index) {
     const problems = round === 0 ? [] : gates.filter((g) => !g.ok).map((g) => ({ label: g.label, detail: g.detail }));
     const raw = await complete({
       system: CHAPTER_SYSTEM,
-      user: chapterUser({ book, chapter: entry, prevText: prev?.text ?? '', problems, memoryText }),
+      user: chapterUser({
+        book, chapter: entry, prevText: prev?.text ?? '', problems, memoryText,
+        brief, wordTarget,
+      }),
     });
     text = stripHeading(raw);
     if (wordCount(text) < 200) {
@@ -229,10 +263,12 @@ export async function writeChapter(id, index) {
 
     scan = analyzeText(text);
     const chapter = { index: idx, title: entry.title, text, words: wordCount(text), scan: { score: scan.score, grade: scan.grade }, gates: [] };
-    gates = chapterGates({ book, chapter, prev, maxScan: DRAFT_SCAN });
-    if (gates.every((g) => g.ok)) { error = ''; break; }
-    error = gates.filter((g) => !g.ok).map((g) => g.label).join('、');
-    logger.info('novel.chapter.gates', { id, index: idx, round, failed: gates.filter((g) => !g.ok).map((g) => g.id) });
+    gates = chapterGates({ book, chapter, prev, maxScan: DRAFT_SCAN, freedom });
+    // 自由写作下门是建议：只有硬门（正文为空）没过才重写，不为风格问题烧额度
+    const hardFailed = gates.filter((g) => g.severity === 'hard' && !g.ok);
+    if (!hardFailed.length) { error = ''; break; }
+    error = hardFailed.map((g) => g.label).join('、');
+    logger.info('novel.chapter.gates', { id, index: idx, round, failed: hardFailed.map((g) => g.id) });
   }
 
   if (!text) throw badRequest(error || '这一章没有写出可用正文，请重试');
@@ -243,14 +279,15 @@ export async function writeChapter(id, index) {
 
   const chapter = {
     index: idx,
-    title: entry.title,
+    title: entry.title || `第${idx}章`,
     text,
     words: wordCount(text),
     scan: scan ? { score: scan.score, grade: scan.grade } : null,
     gates,
     report: scan ? { dimensions: scan.dimensions, issues: scan.issues, clicheTotal: scan.clicheTotal } : null,
     memory,
-    ok: gates.every((g) => g.ok),
+    ok: gates.every((g) => g.severity !== 'hard' || g.ok),
+    freedom,
     error,
     writtenAt: new Date().toISOString(),
   };

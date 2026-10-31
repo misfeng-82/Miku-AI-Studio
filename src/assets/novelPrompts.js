@@ -113,47 +113,48 @@ __PARAMS__: ${JSON.stringify({ title: b.title, chapters: plan })}`;
 const CHAPTER_SYSTEM = `你是这部长篇的主笔。读者用「要不要继续追」投票，所以你只有两个目标：
 让人读下去，并且看不出是 AI 写的。
 
-【动笔前想清楚，不要写出来】
-1. 这一章唯一的核心事件是什么？
-2. 第一句能不能直接把人拽进去？（不许写天气、不许写「清晨的阳光」）
-3. 谁在场，他们各自想隐瞒什么？
-4. 结尾停在哪一秒最难受？
+【关于篇幅与结构：不设限】
+章节可以很长，也可以很短；可以是完整的一场戏，也可以是几个片段。
+篇幅由这一章要讲的事决定，不是由某个字数指标决定。不要为了凑字数加情节，也不要为了收敛砍掉必要的铺垫。
+结构同样自由：单线推进、双线切换、倒叙、独白、书信体都可以，只要服务这一章的内容。
 
-【硬指标】
-- 净字数按任务给的目标，偏差不超过 ±10%。
-- 章首 50–150 字直接进入动作、对话或异常，不做背景介绍。
-- 对话占全章 25%–40%，且要有潜台词：说出口的话与真实意图有落差。
-- 每章至少一个意外转折（读者以为 A，结果是 B）。
-- 连续 500 字没有冲突，就必须引入新张力。
-- 每章只允许一项核心推进，其余是铺垫或余波。
-- 章末钩子落在具体动作或具体一句话上，不许用「他终于明白」这类总结收尾。
+【动笔前想清楚，不要写出来】
+1. 这一章唯一的核心事件是什么（可以是一件事，也可以是一个决定）？
+2. 第一句能不能直接把人拽进去？
+3. 谁在场，他们各自想隐瞒什么？
+4. 结尾停在哪一秒最难受？（不是必须有钩子，但停下来要有理由）
+
+【写作要求（不是硬指标）】
+- 章首尽量直接进入动作、对话或异常，少做背景介绍。
+- 对话承载信息与权力关系，别让人物互相复述已知的事。
+- 事件要留下后果；人物做完选择要付代价。
+- 情绪不要命名，让人物做一个泄露情绪的动作。
+- 段落长度服从情绪：该短就短，该长就长。
 
 【去 AI 味：写的时候就执行，不要留到最后改】
 六项诊断：${SIX_CHECKS.map((c) => c.name).join(' / ')}。
 不要写：${SUBTRACT.map((s) => s.name).join(' / ')} 里那些模板化的东西。
 要写：${ADD.map((a) => a.name).join(' / ')}——具体感官、无功能细节、潜台词、参差的段落。
-情绪不要命名，让人物做一个泄露情绪的动作；段落长度必须长短交错。
 
 【人物与规则】
 - 每个人说话必须符合其 voice；主角不得越过自己的行为红线，越线必须是一次重大事件。
 - 使用世界规则时不要解释，让人物按规则行动，让读者自己拼。
 
 【输出格式】
-直接输出正文：不要标题、不要「以下是正文」、不要任何解释。段落之间空行分隔。
-对话统一用中文引号「」。`;
+直接输出这一章的正文：不要章标题、不要「以下是正文」、不要修改记录、不要任何解释。
+段落之间空行分隔，对话统一用中文引号「」。`;
 
-const chapterUser = ({ book, chapter, prevText, problems, memoryText }) => {
+const chapterUser = ({ book, chapter, prevText, problems, memoryText, brief, wordTarget }) => {
   const cast = (book.bible?.characters ?? []);
   const world = (book.bible?.world ?? []);
   const next = (book.outline?.chapters ?? []).find((c) => c.index === chapter.index + 1);
 
-  return `【本章】
-第 ${chapter.index} 章《${chapter.title || '未命名'}》
-核心事件：${chapter.goal || '（未填）'}
-冲突：${chapter.conflict || '（未填）'}
-转折：${chapter.turn || '（未填）'}
-章末钩子：${chapter.hook || '（未填，请自己定一个具体的）'}
-目标字数：${book.wordsPerChapter} 字
+  return `【目标章节】
+第 ${chapter.index} 章${chapter.title ? `《${chapter.title}》` : ''}
+${[chapter.goal && `核心事件：${chapter.goal}`, chapter.conflict && `冲突：${chapter.conflict}`,
+    chapter.turn && `转折：${chapter.turn}`, chapter.hook && `想留的结尾：${chapter.hook}`,
+    brief && `作者补充（优先遵守）：${brief}`].filter(Boolean).join('\n')}
+篇幅：${wordTarget ? `希望约 ${wordTarget} 字（可上下浮动，内容需要多少写多少）` : '由内容决定，不设字数目标'}
 
 【连续性记忆（前面写过什么，必须一致；不要凭空改设定或复活已死的人）】
 ${memoryText || '（这是第一章，没有前情）'}
@@ -162,19 +163,17 @@ ${memoryText || '（这是第一章，没有前情）'}
 ${prevText ? prevText.slice(-600) : '（无）'}
 
 【下一章要接住的事】
-${next ? `第 ${next.index} 章《${next.title}》将以「${next.goal}」开场，本章结尾要能自然接上。` : '（这是最后一章，结尾要收住主线）'}
+${next ? `第 ${next.index} 章${next.title ? `《${next.title}》` : ''}将以「${next.goal || next.hook || '新的推进'}」开场，本章结尾能自然接上即可，不必强行留钩子。` : '（这是目前规划的最后一章，结尾自由处理）'}
 
 【人物（按 voice 说话）】
-${cast.map((c) => `- ${c.name}（${c.role}）：要 ${c.want}；缺 ${c.flaw}；说话 ${c.voice}`).join('\n') || '（无）'}
+${cast.map((c) => `- ${c.name}（${c.role || '角色'}）：要 ${c.want || '—'}；缺 ${c.flaw || '—'}；说话 ${c.voice || '—'}`).join('\n') || '（暂无人物表，按前文自行把握）'}
 
 【世界规则（不解释，只遵守）】
 ${world.map((w) => `- ${w.rule}（代价：${w.cost || '未写'}）`).join('\n') || '（无）'}
 
-【上一稿没过门的地方，这一稿必须修掉】
-${problems?.length ? problems.map((p) => `- ${p.label}：${p.detail}`).join('\n') : '（无，按规范写即可）'}
-
+${problems?.length ? `【上一稿的检查提示（不是必须照做，但值得看一眼）】\n${problems.map((p) => `- ${p.label}：${p.detail}`).join('\n')}\n` : ''}
 __TASK__: novelchapter
-__PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: book.wordsPerChapter })}`;
+__PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: wordTarget || book.wordsPerChapter || 0 })}`;
 };
 
 export {

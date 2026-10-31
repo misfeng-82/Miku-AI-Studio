@@ -863,6 +863,7 @@ await t('边界：deai rewrite 门禁线越界收敛到合法区间', async () =
 
 /* ---------------- 小说创作（设定集 → 章纲 → 逐章正文 → 导出） ---------------- */
 let novelId = null;
+const novelCleanup = [];
 
 await t('POST /api/novels 立项建书', async () => {
   const r = await call('POST', '/api/novels', {
@@ -900,10 +901,10 @@ await t('POST /api/novels/:id/bible 设定集', async () => {
   return `${r.data.bible.characters.length} 人 · ${r.data.bible.world.length} 条规则`;
 });
 
-await t('边界：没排章纲就写正文返回 400', async () => {
-  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 1 });
+await t('边界：纪律模式下没排章纲就写正文返回 400', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 1, freedom: false });
   is(r, 400, '缺章纲应拒绝');
-  return '缺章纲被拦';
+  return '缺章纲被拦（自由写作下允许）';
 });
 
 await t('POST /api/novels/:id/outline 章纲与伏笔', async () => {
@@ -925,9 +926,11 @@ await t('POST /api/novels/:id/chapter 写第 1 章（含扫描与六道单章门
   const ch = r.data.chapter;
   truthy(ch.words >= 2000, `字数应接近目标，实际 ${ch.words}`);
   truthy(typeof ch.scan.score === 'number', '应带 AI 痕迹分');
-  eq(r.data.gates.length, 6, '单章门条数');
-  const failed = r.data.gates.filter((g) => !g.ok).map((g) => g.label);
-  eq(failed.length, 0, `六道门应全过，实际未过：${failed.join('、')}`);
+  eq(r.data.gates.length, 7, '单章门条数（1 硬 + 6 建议）');
+  truthy(r.data.gates.every((g) => g.severity), '每道门都要带 severity');
+  eq(r.data.gates.filter((g) => g.severity === 'hard').length, 1, '自由写作下只有 1 道硬门');
+  const failedHard = r.data.gates.filter((g) => g.severity === 'hard' && !g.ok).map((g) => g.label);
+  eq(failedHard.length, 0, `硬门不该挂，实际：${failedHard.join('、')}`);
   return `${ch.words} 字 · AI 痕迹 ${ch.scan.score} · 6/6 门`;
 });
 
@@ -968,11 +971,59 @@ await t('边界：确认不存在的伏笔返回 404', async () => {
   return '不存在伏笔被拦';
 });
 
-await t('边界：写不存在的章号返回 404', async () => {
-  // 100 在合法入参范围（1–500）内，但大纲只有几十章 —— 这是「查不到」，不是参数错误
-  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 100 });
+await t('自由写作：不排章纲也能直接写目标章节（章号在大纲外）', async () => {
+  const created = await call('POST', '/api/novels', {
+    title: '目标章节测试书', genre: '悬疑',
+    logline: '所有人都说是意外，只有他记得那盏灯。',
+    targetWords: 30000, wordsPerChapter: 3000,
+  });
+  const nid = created.data.book.id;   // call() 返回 { status, data }
+  novelCleanup.push(nid);
+
+  // 没有设定集、没有章纲，直接写第 7 章
+  const r = await call('POST', `/api/novels/${nid}/chapter`, {
+    index: 7, title: '门', brief: '他第一次开那扇门，代价是交出一个名字。',
+  });
+  is(r, 200, 'free chapter');
+  eq(r.data.chapter.index, 7, '章号');
+  eq(r.data.chapter.title, '门', '标题应按目标章节保存');
+  eq(r.data.chapter.freedom, true, '应标记自由写作');
+  eq(r.data.chapter.ok, true, '建议型门不该把章节判成未过');
+  truthy(r.data.chapter.words >= 200, '应有正文');
+
+  const full = await call('GET', `/api/novels/${nid}`);
+  const entry = full.data.book.outline.chapters.find((c) => c.index === 7);
+  truthy(entry && entry.adhoc, '目标章节应自动补进章纲列表并标 adhoc');
+  eq(entry.goal, '他第一次开那扇门，代价是交出一个名字。', '作者补充应写进本章目标');
+  return `第7章 ${r.data.chapter.words} 字 · 章纲已补`;
+});
+
+await t('目标章节：目标字数只是参考，不设上下限', async () => {
+  const list = await call('GET', '/api/novels');
+  const nid = list.data.items.find((x) => x.title === '目标章节测试书')?.id;
+  truthy(nid, '应能找到测试书');
+  const r = await call('POST', `/api/novels/${nid}/chapter`, { index: 8, wordTarget: 1200 });
+  is(r, 200, 'chapter with wordTarget');
+  const words = r.data.chapter.words;
+  // 目标字数是「参考」：样本会照着写，但门不因为偏差判错
+  truthy(Math.abs(words - 1200) / 1200 < 0.3, `样本应接近目标字数，实际 ${words}`);
+  eq(r.data.gates.find((g) => g.id === 'words').ok, true, '篇幅门在自由写作下恒为通过');
+  return `${words} 字（目标 1200，不判错）`;
+});
+
+await t('纪律模式：章号不在大纲里返回 404', async () => {
+  const list = await call('GET', '/api/novels');
+  const nid = list.data.items.find((x) => x.title === '目标章节测试书')?.id;
+  const r = await call('POST', `/api/novels/${nid}/chapter`, { index: 40, freedom: false });
+  is(r, 404, '纪律模式下越界章号应 404');
+  return '纪律模式拦住';
+});
+
+await t('边界：纪律模式下写大纲外的章号返回 404', async () => {
+  // 100 在合法入参范围内，但大纲只有几十章 —— 纪律模式下这是「查不到」
+  const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 100, freedom: false });
   is(r, 404, '大纲里没有的章号应 404');
-  return '大纲外章号被拦';
+  return '大纲外章号被拦（自由写作下允许）';
 });
 
 await t('边界：章号超出 1–500 返回 422', async () => {
@@ -999,6 +1050,9 @@ await t('DELETE /api/novels/:id 删书（软删索引）', async () => {
   truthy(!list.data.items.some((x) => x.id === novelId), '删后列表不应再有');
   return '已从书目移除';
 });
+
+// 清理自由写作测试造的临时书
+for (const id of novelCleanup) { try { await call('DELETE', `/api/novels/${id}`); } catch { /* 忽略 */ } }
 
 await t('边界：删除不存在的书返回 404', async () => {
   const r = await call('DELETE', '/api/novels/not-a-real-id');

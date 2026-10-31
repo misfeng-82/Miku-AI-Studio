@@ -549,8 +549,16 @@ api.post('/api/novels/:id/bible', async (req, res) => sendJson(res, 200, await n
 api.post('/api/novels/:id/outline', async (req, res) => sendJson(res, 200, await novelService.planOutline(req.params.id)));
 
 api.post('/api/novels/:id/chapter', async (req, res) => {
-  const index = requireInt((req.body ?? {}).index, 'index', { min: 1, max: 500 });
-  sendJson(res, 200, await novelService.writeChapter(req.params.id, index));
+  const b = req.body ?? {};
+  // 目标章节：章号上限放到 2000，因为自由写作允许写到大纲之外
+  const index = requireInt(b.index, 'index', { min: 1, max: 2000 });
+  sendJson(res, 200, await novelService.writeChapter(req.params.id, index, {
+    title: optionalString(b.title, 'title', { max: 40 }) ?? '',
+    brief: optionalString(b.brief, 'brief', { max: 500 }) ?? '',
+    wordTarget: b.wordTarget === undefined || b.wordTarget === null ? null
+      : requireInt(b.wordTarget, 'wordTarget', { min: 100, max: 50000, fallback: null }),
+    freedom: b.freedom === undefined ? undefined : Boolean(b.freedom),
+  }));
 });
 
 api.post('/api/novels/:id/foreshadow', async (req, res) => {
