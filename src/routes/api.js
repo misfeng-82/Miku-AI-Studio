@@ -553,6 +553,11 @@ api.post('/api/novels/:id/chapter', async (req, res) => {
   sendJson(res, 200, await novelService.writeChapter(req.params.id, index));
 });
 
+api.post('/api/novels/:id/foreshadow', async (req, res) => {
+  const fid = requireString((req.body ?? {}).id, 'id', { min: 1, max: 20 });
+  sendJson(res, 200, await novelService.markForeshadowPaid(req.params.id, fid));
+});
+
 api.get('/api/novels/:id/export', (req, res) => sendJson(res, 200, novelService.exportBook(req.params.id)));
 
 /* ---------------- 项目（用于保存与串联，非必需） ---------------- */

@@ -142,7 +142,7 @@ const CHAPTER_SYSTEM = `你是这部长篇的主笔。读者用「要不要继�
 直接输出正文：不要标题、不要「以下是正文」、不要任何解释。段落之间空行分隔。
 对话统一用中文引号「」。`;
 
-const chapterUser = ({ book, chapter, prevText, problems }) => {
+const chapterUser = ({ book, chapter, prevText, problems, memoryText }) => {
   const cast = (book.bible?.characters ?? []);
   const world = (book.bible?.world ?? []);
   const next = (book.outline?.chapters ?? []).find((c) => c.index === chapter.index + 1);
@@ -155,8 +155,11 @@ const chapterUser = ({ book, chapter, prevText, problems }) => {
 章末钩子：${chapter.hook || '（未填，请自己定一个具体的）'}
 目标字数：${book.wordsPerChapter} 字
 
-【上一章结尾（承接用，不要重复它的开头）】
-${prevText ? prevText.slice(-800) : '（这是第一章，无上文）'}
+【连续性记忆（前面写过什么，必须一致；不要凭空改设定或复活已死的人）】
+${memoryText || '（这是第一章，没有前情）'}
+
+【上一章结尾（原文，承接语感用，不要重复它的开头）】
+${prevText ? prevText.slice(-600) : '（无）'}
 
 【下一章要接住的事】
 ${next ? `第 ${next.index} 章《${next.title}》将以「${next.goal}」开场，本章结尾要能自然接上。` : '（这是最后一章，结尾要收住主线）'}

@@ -19,6 +19,9 @@ import * as repo from '../repo/novelRepo.js';
 import { analyzeText } from '../engine/deaiScan.mjs';
 import { bookGates, chapterGates, readiness, wordCount } from '../engine/novelGates.mjs';
 import {
+  analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
+} from '../engine/novelMemory.mjs';
+import {
   BIBLE_SYSTEM, bibleUser, OUTLINE_SYSTEM, outlineUser, CHAPTER_SYSTEM, chapterUser,
 } from '../assets/novelPrompts.js';
 
@@ -198,6 +201,14 @@ export async function writeChapter(id, index) {
   const existing = (book.chapters ?? []).find((c) => c.index === idx);
   const prev = (book.chapters ?? []).find((c) => c.index === idx - 1) ?? null;
 
+  // 动笔前先取「前面写过什么」：连续性是长篇最容易崩的地方，
+  // 只给上一章结尾 800 字不够——三十章后模型不知道谁死过、哪条伏笔还没收。
+  const bookMemory = buildBookMemory(book.chapters ?? []);
+  const memoryText = memoryToPrompt(bookMemory, prev, {
+    foreshadow: book.outline.foreshadow ?? [],
+    current: idx,
+  });
+
   let text = '';
   let scan = null;
   let gates = [];
@@ -207,7 +218,7 @@ export async function writeChapter(id, index) {
     const problems = round === 0 ? [] : gates.filter((g) => !g.ok).map((g) => ({ label: g.label, detail: g.detail }));
     const raw = await complete({
       system: CHAPTER_SYSTEM,
-      user: chapterUser({ book, chapter: entry, prevText: prev?.text ?? '', problems }),
+      user: chapterUser({ book, chapter: entry, prevText: prev?.text ?? '', problems, memoryText }),
     });
     text = stripHeading(raw);
     if (wordCount(text) < 200) {
@@ -226,6 +237,10 @@ export async function writeChapter(id, index) {
 
   if (!text) throw badRequest(error || '这一章没有写出可用正文，请重试');
 
+  // 记忆是纯规则提炼的（不花额度、可复现）：谁出过场、在哪儿、埋了什么、过了多久
+  // 传人物表进去：有表就按表点名（准），没表才退回弱信号抽取
+  const memory = analyzeChapter(entry.title, text, { cast: book.bible?.characters ?? [] });
+
   const chapter = {
     index: idx,
     title: entry.title,
@@ -234,16 +249,44 @@ export async function writeChapter(id, index) {
     scan: scan ? { score: scan.score, grade: scan.grade } : null,
     gates,
     report: scan ? { dimensions: scan.dimensions, issues: scan.issues, clicheTotal: scan.clicheTotal } : null,
+    memory,
     ok: gates.every((g) => g.ok),
     error,
     writtenAt: new Date().toISOString(),
   };
 
   book.chapters = [...(book.chapters ?? []).filter((c) => c.index !== idx), chapter].sort((a, b) => a.index - b.index);
+
+  // 连续性检查要用「写这一章之前的已出场人物」，所以放在入册之后、重建记忆之前，
+  // 但比对基准取上一轮算好的 bookMemory，避免把本章新人名当成熟人。
+  const cont = continuityCheck({ book: { ...book, memory: bookMemory }, chapter });
+
+  // 伏笔台账：本章埋的标 planted，到回收章且正文提到了标 paid，过章没提标 overdue
+  updateForeshadow(book, chapter);
+  book.memory = buildBookMemory(book.chapters);
+
   await repo.saveNovel(book);
   logger.info('novel.chapter.saved', { id, index: idx, words: chapter.words, score: chapter.scan?.score ?? null, ok: chapter.ok });
 
-  return { chapter, gates, readiness: readiness(book) };
+  const advisories = [];
+  if (cont.newcomers.length) {
+    advisories.push(`本章出现了设定与大纲里没有的名字：${cont.newcomers.join('、')}——如果不是有意新增角色，下一章要收回来`);
+  }
+  const overdue = (book.outline?.foreshadow ?? []).filter((f) => f.status === 'overdue');
+  if (overdue.length) {
+    advisories.push(`有 ${overdue.length} 条伏笔已过计划回收章仍没提到：${overdue.map((f) => f.id).join('、')}`);
+  }
+
+  return { chapter, gates, advisories, readiness: readiness(book) };
+}
+
+/** 人工确认某条伏笔已回收（模型换了说法、关键词判不出来时的出口） */
+export async function markForeshadowPaid(id, fid) {
+  const book = repo.getNovel(id);
+  const target = confirmForeshadow(book, String(fid ?? ''));
+  if (!target) throw notFound(`伏笔 ${fid} 不存在`);
+  await repo.saveNovel(book);
+  return { foreshadow: book.outline.foreshadow };
 }
 
 /** 已有章节换一版（用户不满意时重写同一章，不动别的） */
@@ -276,14 +319,30 @@ export function exportBook(id) {
     lines.push('');
   }
   if (book.outline?.foreshadow?.length) {
-    lines.push('## 伏笔台账', '', '| ID | 内容 | 埋设 | 回收 |', '|---|---|---|---|');
-    for (const f of book.outline.foreshadow) lines.push(`| ${f.id} | ${f.content} | 第${f.plantAt}章 | 第${f.payoffAt}章 |`);
+    const STATUS = { planted: '已埋', paid: '已回收', due: '待确认回收', overdue: '逾期未收' };
+    lines.push('## 伏笔台账', '', '| ID | 内容 | 埋设 | 回收 | 状态 |', '|---|---|---|---|---|');
+    for (const f of book.outline.foreshadow) {
+      lines.push(`| ${f.id} | ${f.content} | 第${f.plantAt}章 | 第${f.payoffAt}章 | ${STATUS[f.status] ?? '待埋'}${f.paidAt ? `（第${f.paidAt}章）` : ''} |`);
+    }
+    lines.push('');
+  }
+
+  if (book.memory?.characters?.length) {
+    lines.push('## 全书记忆', '');
+    lines.push(`- 已出场人物：${book.memory.characters.join('、')}`);
+    if (book.memory.places?.length) lines.push(`- 已出现地点：${book.memory.places.join('、')}`);
+    if (book.memory.arc?.length) {
+      lines.push('- 全书脉络：');
+      for (const a of book.memory.arc) if (a.point) lines.push(`  - 第${a.no}章《${a.title}》：${a.point}`);
+    }
     lines.push('');
   }
 
   if (!chapters.length) lines.push('## 正文', '', '_（还没有写正文）_');
   for (const c of chapters) {
-    lines.push('---', '', `## 第${c.index}章 ${c.title}`, '', c.text, '');
+    lines.push('---', '', `## 第${c.index}章 ${c.title}`, '');
+    if (c.memory?.points?.length) lines.push(`> 本章要点：${c.memory.points.join(' / ')}`, '');
+    lines.push(c.text, '');
   }
 
   const words = chapters.reduce((n, c) => n + (c.words ?? 0), 0);

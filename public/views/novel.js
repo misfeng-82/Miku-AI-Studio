@@ -137,8 +137,16 @@ function outlineCard(b) {
       </div>`;
     }).join('')}</div>
 
-    ${(o.foreshadow ?? []).length ? `<div style="margin-top:14px"><div class="fl" style="margin-bottom:6px">伏笔台账</div>
-      <div class="chip-row">${o.foreshadow.map((f) => `<span class="chip static" title="${esc(f.content)}">${esc(f.id)} 埋${f.plantAt}→收${f.payoffAt}${f.tier === 1 ? '（主线）' : ''}</span>`).join('')}</div></div>` : ''}
+    ${(o.foreshadow ?? []).length ? `<div style="margin-top:14px"><div class="fl" style="margin-bottom:6px">伏笔台账（自动跟踪回收状态）</div>
+      <div class="chip-row">${o.foreshadow.map((f) => {
+        const st = f.status === 'paid' ? { cls: 'teal', text: `已回收·第${f.paidAt}章` }
+          : f.status === 'overdue' ? { cls: 'rose', text: '逾期未收' }
+            : f.status === 'due' ? { cls: 'amber', text: '待确认回收' }
+              : f.status === 'planted' ? { cls: 'blue', text: `已埋·第${f.plantedAt ?? f.plantAt}章` }
+                : { cls: 'outline', text: '待埋' };
+        const canConfirm = f.status !== 'paid';
+        return `<button class="chip ${canConfirm ? '' : 'static'}" ${canConfirm ? `data-foreconfirm="${esc(f.id)}" title="点一下标记为已回收（模型换了说法时用这个）"` : `title="${esc(f.content)}"`}>${esc(f.id)} 埋${f.plantAt}→收${f.payoffAt}<span class="tag ${st.cls}" style="margin-left:6px">${st.text}</span></button>`;
+      }).join('')}</div></div>` : ''}
   </div>`;
 }
 
@@ -154,8 +162,58 @@ function latestChapterCard(b) {
         <button class="btn btn-sm" data-copy="${esc(ch.text)}">${ICONS.copy}复制正文</button>
       </div></div>
     ${ch.gates?.length ? gateList(ch.gates) : ''}
+    ${(ch.memory?.points ?? []).length ? `<div style="margin-top:12px"><div class="fl" style="margin-bottom:6px">本章要点（自动提炼，供下一章参考）</div>
+      <div class="chip-row">${ch.memory.points.map((p) => `<span class="chip static" title="${esc(p)}">${esc(p)}</span>`).join('')}</div></div>` : ''}
+    ${(state.data.novel?.advisories ?? []).length ? `<div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>
+      ${state.data.novel.advisories.map((a) => esc(a)).join('<br>')}</div></div>` : ''}
     <div class="pblock" style="margin-top:12px"><div class="pblock-head"><span class="ph-name">chapter ${ch.index}</span><span class="tag outline">${ch.words} 字</span></div>
       <div class="pblock-body" style="max-height:260px;overflow:auto">${esc(ch.text.slice(0, 1200))}${ch.text.length > 1200 ? '…' : ''}</div></div>
+  </div>`;
+}
+
+/* ================= 连续性记忆 ================= */
+/**
+ * 长篇真正的难点是「记住前面写过什么」。这张卡把纯规则提炼出的记忆摊开：
+ * 全书脉络 / 已出场人物 / 已出现地点 / 时间线 / 待回收伏笔。
+ * 它是下一章提示词里【连续性记忆】那一段的来源，也是人工核对连续性的地方。
+ */
+function memoryCard(b) {
+  const m = b.memory;
+  const open = (b.outline?.foreshadow ?? []).filter((f) => f.status !== 'paid');
+  if (!m?.writtenChapters) {
+    return `<div class="card">
+      <div class="card-head"><div><h2>连续性记忆</h2><div class="sub">写完第一章后自动提炼：谁出过场、在哪儿、埋了什么、过了多久</div></div></div>
+      <div class="empty"><div class="eicon">${ICONS.layers}</div><h3>还没有记忆</h3><p>每写完一章会自动提炼一次，纯本机规则，不花额度。</p></div>
+    </div>`;
+  }
+  return `<div class="card">
+    <div class="card-head"><div><h2>连续性记忆</h2>
+      <div class="sub">${m.writtenChapters} 章 · ${m.totalChars} 字 · 纯规则提炼（不花额度，可复现）</div></div>
+      <span class="tag teal">自动注入下一章提示词</span></div>
+
+    ${(m.arc ?? []).length ? `<div><div class="fl" style="margin-bottom:6px">全书脉络</div>
+      <div class="rows" style="max-height:220px;overflow:auto">${m.arc.slice(-10).map((a) => `<div class="row" style="grid-template-columns:52px 1fr">
+        <div class="muted mono" style="font-size:10.5px">第${a.no}章</div>
+        <div style="font-size:11.5px">${esc(a.point || '（没提炼出要点）')}</div>
+      </div>`).join('')}</div></div>` : ''}
+
+    <div class="grid-2" style="margin-top:14px">
+      <div>
+        <div class="fl" style="margin-bottom:6px">已出场人物</div>
+        <div class="chip-row">${(m.characters ?? []).map((n) => `<span class="chip static">${esc(n)}</span>`).join('') || '<span class="muted" style="font-size:11px">（没有识别到）</span>'}</div>
+      </div>
+      <div>
+        <div class="fl" style="margin-bottom:6px">已出现地点</div>
+        <div class="chip-row">${(m.places ?? []).map((n) => `<span class="chip static">${esc(n)}</span>`).join('') || '<span class="muted" style="font-size:11px">（没有识别到）</span>'}</div>
+      </div>
+    </div>
+
+    ${(m.timeline ?? []).length ? `<div style="margin-top:12px"><div class="fl" style="margin-bottom:6px">时间线</div>
+      <div class="chip-row">${m.timeline.slice(-6).map((t) => `<span class="chip static">第${t.no}章：${esc(t.t)}</span>`).join('')}</div></div>` : ''}
+
+    ${open.length ? `<div class="notice notice-warn" style="margin-top:12px">${ICONS.alert}<div>
+      <b>还没回收的伏笔</b>：${open.map((f) => `${esc(f.id)}（${esc(f.content)}，计划第${f.payoffAt}章）`).join('；')}
+    </div></div>` : `<div class="notice notice-ok" style="margin-top:12px">${ICONS.check}<div>伏笔全部回收完毕。</div></div>`}
   </div>`;
 }
 
@@ -186,7 +244,8 @@ function workbench(b) {
   </div>
   ${bibleCard(b)}
   ${outlineCard(b)}
-  ${latestChapterCard(b)}`;
+  ${latestChapterCard(b)}
+  ${memoryCard(b)}`;
 }
 
 export function viewNovel() {
@@ -265,16 +324,26 @@ export const runners = {
     if (!b) return toast('先选一本书', 'warn');
     const r = await api.novelChapter(b.id, index);
     const ch = r.chapter;
+    // 记忆与伏笔状态由服务端算好，这里整本刷新一次，避免前端自己拼错
+    const full = await api.novel(b.id);
     state.data.novel = {
       ...(state.data.novel ?? {}),
-      book: { ...b, chapters: [...(b.chapters ?? []).filter((c) => c.index !== ch.index), ch].sort((x, y) => x.index - y.index) },
-      gates: gates(),
-      readiness: r.readiness,
+      book: full.book,
+      gates: full.gates,
+      readiness: full.readiness,
+      advisories: r.advisories ?? [],
     };
     if (ch.ok) toast(`第 ${index} 章写完，6 道门全过（AI 痕迹 ${ch.scan?.score}）`);
     else toast(`第 ${index} 章已保存，但有门没过：${ch.error}`, 'warn', 4000);
   },
 };
+
+/** 人工确认某条伏笔已回收 */
+export async function confirmFore(id, fid) {
+  await api.novelForeshadow(id, fid);
+  await openBook(id);
+  toast(`${fid} 已标记为回收`);
+}
 
 /** 打开一本书：拉完整详情（书 + 设定门 + 就绪度） */
 export async function openBook(id) {

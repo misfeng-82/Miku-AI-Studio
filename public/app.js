@@ -342,7 +342,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelwrite],[data-novelexport],[data-novelgenre],[data-novelaud],[data-foreconfirm]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -387,6 +387,11 @@ document.addEventListener('click', (e) => {
   }
   if (btn.dataset.novelexport !== undefined) {
     novel.exportBook(btn.dataset.novelexport).catch((e) => toast(e.message, 'err'));
+    return;
+  }
+  if (btn.dataset.foreconfirm !== undefined) {
+    const b = state.data.novel?.book;
+    if (b) novel.confirmFore(b.id, btn.dataset.foreconfirm).then(render).catch((e) => toast(e.message, 'err'));
     return;
   }
   if (btn.dataset.novelgenre !== undefined) { state.cfg.novelGenre = btn.dataset.novelgenre; save(); render(); return; }

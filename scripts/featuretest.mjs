@@ -931,6 +931,43 @@ await t('POST /api/novels/:id/chapter 写第 1 章（含扫描与六道单章门
   return `${ch.words} 字 · AI 痕迹 ${ch.scan.score} · 6/6 门`;
 });
 
+await t('写章后自动提炼连续性记忆', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const book = r.data.book;
+  const ch = book.chapters.find((c) => c.index === 1);
+  truthy(ch?.memory, '章节应带记忆');
+  truthy(Array.isArray(ch.memory.points) && ch.memory.points.length <= 3, '要点 ≤3 条');
+  truthy(Array.isArray(ch.memory.characters), '应有人物列表');
+  truthy(book.memory?.writtenChapters === 1, '书级记忆应记到 1 章');
+  truthy(book.memory.arc.length === 1, '全书脉络应有 1 条');
+  return `要点 ${ch.memory.points.length} · 人物 ${ch.memory.characters.join('、') || '—'}`;
+});
+
+await t('伏笔台账自动标记埋设', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const fs = r.data.book.outline.foreshadow;
+  const planted = fs.filter((f) => f.status === 'planted');
+  truthy(planted.length >= 1, `第 1 章应埋下至少一条，实际：${fs.map((f) => `${f.id}:${f.status ?? '待埋'}`).join(' ')}`);
+  return planted.map((f) => f.id).join('、');
+});
+
+await t('POST /api/novels/:id/foreshadow 人工确认回收', async () => {
+  const before = await call('GET', `/api/novels/${novelId}`);
+  const fid = before.data.book.outline.foreshadow[0].id;
+  const r = await call('POST', `/api/novels/${novelId}/foreshadow`, { id: fid });
+  is(r, 200, 'confirm foreshadow');
+  const target = r.data.foreshadow.find((f) => f.id === fid);
+  eq(target.status, 'paid', '确认后状态');
+  eq(target.confirmed, true, '应标记人工确认');
+  return `${fid} → paid`;
+});
+
+await t('边界：确认不存在的伏笔返回 404', async () => {
+  const r = await call('POST', `/api/novels/${novelId}/foreshadow`, { id: 'F999' });
+  is(r, 404, '不存在的伏笔应 404');
+  return '不存在伏笔被拦';
+});
+
 await t('边界：写不存在的章号返回 404', async () => {
   // 100 在合法入参范围（1–500）内，但大纲只有几十章 —— 这是「查不到」，不是参数错误
   const r = await call('POST', `/api/novels/${novelId}/chapter`, { index: 100 });
@@ -949,6 +986,8 @@ await t('GET /api/novels/:id/export 导出全书', async () => {
   is(r, 200, 'novel export');
   truthy(r.data.text.includes('第1章'), '应含第一章');
   truthy(r.data.text.includes('伏笔台账'), '应含伏笔台账');
+  truthy(r.data.text.includes('本章要点'), '应含每章要点');
+  truthy(r.data.text.includes('全书记忆'), '应含全书记忆');
   truthy(r.data.chapters === 1, `已写章数应为 1，实际 ${r.data.chapters}`);
   return `${r.data.chapters} 章 · ${r.data.words} 字 · ${r.data.filename}`;
 });

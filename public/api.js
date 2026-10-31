@@ -95,6 +95,7 @@ export const api = {
   novelOutline: (id) => request('POST', `/api/novels/${id}/outline`, {}),
   novelChapter: (id, index) => request('POST', `/api/novels/${id}/chapter`, { index }),
   novelExport: (id) => request('GET', `/api/novels/${id}/export`),
+  novelForeshadow: (id, fid) => request('POST', `/api/novels/${id}/foreshadow`, { id: fid }),
   titles: (b) => request('POST', '/api/titles', b),
   relations: (b) => request('POST', '/api/relations', b),
 

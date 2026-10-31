@@ -13,6 +13,9 @@ import { gateReport as outlineGates } from '../src/engine/outline.mjs';
 import { gateReport as scriptGates } from '../src/engine/script.mjs';
 import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
 import { bookGates, chapterGates, readiness, wordCount } from '../src/engine/novelGates.mjs';
+import {
+  analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
+} from '../src/engine/novelMemory.mjs';
 import { parseScriptText } from '../public/parseScriptText.js';
 import { generateStory, generateOutline, generateEpisode, assemble, splitLongLines } from '../src/services/scriptGenService.js';
 import { HOT_DRAMAS, HOT_BOARD_META } from '../src/assets/hotDramas.js';
@@ -1091,6 +1094,108 @@ t('小说：就绪度能算出进度与通过章数', () => {
   assert.equal(r.progress, 10);
   assert.equal(r.clean, 1);
   assert.equal(r.bibleReady, true);
+});
+
+
+/* ---- 连续性记忆（移植自墨笔 memory.js，改为按人物表点名）---- */
+const MEM_TEXT = '雾是从江面先起的。沈砚把票根摊在掌心，又攥了回去。\n\n'
+  + '守夜人：「今晚不开闸。」\n\n沈砚问：「我父亲的票，是谁卖的。」\n\n'
+  + '守夜人没答。电筒照在沈砚的脸上。\n\n原来那盏灯是沈砚的父亲点的。三天后码头要拆了。';
+
+t('记忆：按人物表点名，不产生「在沈砚」这类碎片', () => {
+  const cast = [{ name: '沈砚' }, { name: '守夜人' }, { name: '陈九' }];
+  const m = analyzeChapter('灯', MEM_TEXT, { cast });
+  assert.deepEqual(m.characters.sort(), ['守夜人', '沈砚'].sort(), `实际：${m.characters.join('、')}`);
+  assert.ok(!m.characters.some((n) => /在|问$/.test(n)), `不应出现碎片：${m.characters.join('、')}`);
+});
+
+t('记忆：没给别人物表时不会返回动词结尾的垃圾名', () => {
+  const m = analyzeChapter('灯', MEM_TEXT);
+  assert.ok(m.characters.every((n) => !/[问说看走开]$/.test(n)), `垃圾名：${m.characters.join('、')}`);
+});
+
+t('记忆：要点 ≤3 条且都来自正文', () => {
+  const m = analyzeChapter('灯', MEM_TEXT);
+  assert.ok(m.points.length >= 1 && m.points.length <= 3);
+  for (const p of m.points) assert.ok(MEM_TEXT.includes(p.replace(/…$/, '').slice(0, 10)), `要点不在正文里：${p}`);
+});
+
+t('记忆：伏笔句与时间线能被抽出来', () => {
+  const m = analyzeChapter('灯', MEM_TEXT);
+  assert.ok(m.foreshadow.some((f) => f.includes('原来')), '应抽到揭示句');
+  assert.ok(m.timeline.some((t) => t.includes('三天后')), '应抽到时间线');
+});
+
+t('记忆：全书脉络按章汇总，人物去重', () => {
+  const a = analyzeChapter('灯', MEM_TEXT, { cast: [{ name: '沈砚' }] });
+  const b = analyzeChapter('票', MEM_TEXT, { cast: [{ name: '沈砚' }] });
+  const bm = buildBookMemory([{ index: 1, title: '灯', memory: a }, { index: 2, title: '票', memory: b }]);
+  assert.equal(bm.writtenChapters, 2);
+  assert.equal(bm.arc.length, 2);
+  assert.deepEqual(bm.characters, ['沈砚']);
+});
+
+t('记忆：提示词里带上脉络/人物/待回收伏笔，并标出本章该收的', () => {
+  const m = analyzeChapter('灯', MEM_TEXT, { cast: [{ name: '沈砚' }] });
+  const bm = buildBookMemory([{ index: 1, title: '灯', memory: m }]);
+  const text = memoryToPrompt(bm, { memory: m }, {
+    foreshadow: [
+      { id: 'F1', content: '那盏没熄的灯', plantAt: 1, payoffAt: 3, status: 'planted' },
+      { id: 'F2', content: '票根背面的字', plantAt: 2, payoffAt: 2, status: 'planted' },
+    ],
+    current: 2,
+  });
+  assert.match(text, /【前情脉络】/);
+  assert.match(text, /【已出场人物】沈砚/);
+  assert.match(text, /【尚未回收的伏笔】/);
+  assert.match(text, /F2：.*本章应回收/, '到回收章的伏笔要标注');
+  assert.match(text, /【上一章发生了什么】/);
+});
+
+t('记忆：伏笔状态机（埋 → 收 / 逾期）', () => {
+  const book = { outline: { foreshadow: [{ id: 'F1', content: '那盏没熄的灯', plantAt: 1, payoffAt: 2 }] } };
+  updateForeshadow(book, { index: 1, text: '他看见了那盏灯。' });
+  assert.equal(book.outline.foreshadow[0].status, 'planted', '埋设章应标 planted');
+
+  updateForeshadow(book, { index: 2, text: '他绕回码头，那盏没熄的灯还亮着。' });
+  assert.equal(book.outline.foreshadow[0].status, 'paid', '回收章提到关键词应标 paid');
+  assert.equal(book.outline.foreshadow[0].paidAt, 2);
+});
+
+t('记忆：到回收章没提先标「待确认」，过章才判逾期', () => {
+  const book = { outline: { foreshadow: [{ id: 'F1', content: '那盏没熄的灯', plantAt: 1, payoffAt: 2 }] } };
+  updateForeshadow(book, { index: 1, text: '无关内容。' });
+  updateForeshadow(book, { index: 2, text: '还是无关。' });
+  assert.equal(book.outline.foreshadow[0].status, 'due', '正好到回收章且没提到，应标 due 而不是直接逾期');
+});
+
+t('记忆：人工确认回收', () => {
+  const book = {
+    outline: { foreshadow: [{ id: 'F1', content: '那盏没熄的灯', plantAt: 1, payoffAt: 2, status: 'due' }] },
+    chapters: [{ index: 1, text: 'x' }, { index: 2, text: 'y' }],
+  };
+  const target = confirmForeshadow(book, 'F1');
+  assert.equal(target.status, 'paid');
+  assert.equal(target.confirmed, true);
+});
+
+t('记忆：到回收章没提，过章后判逾期', () => {
+  const book = { outline: { foreshadow: [{ id: 'F1', content: '那盏没熄的灯', plantAt: 1, payoffAt: 2 }] } };
+  updateForeshadow(book, { index: 1, text: '无关内容。' });
+  updateForeshadow(book, { index: 2, text: '还是无关。' });
+  updateForeshadow(book, { index: 3, text: '一直无关。' });
+  assert.equal(book.outline.foreshadow[0].status, 'overdue');
+});
+
+t('记忆：连续性检查能认出设定外的新名字', () => {
+  const book = {
+    bible: { characters: [{ name: '沈砚' }] },
+    outline: { chapters: [{ index: 1, characters: ['沈砚'] }] },
+    memory: { characters: [] },
+  };
+  const chapter = { index: 1, memory: { characters: ['沈砚', '马保安'] } };
+  const r = continuityCheck({ book, chapter });
+  assert.deepEqual(r.newcomers, ['马保安']);
 });
 
 for (const [name, fn] of asyncTests) {
