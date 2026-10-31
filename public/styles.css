@@ -368,6 +368,9 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 .btn:disabled { cursor: not-allowed; }
 /* 章纲里被选中的那一章：左侧一道竖线，不用整行变色（整行变色会和「未写」标签打架） */
 .row-active { background: var(--surface-2); border-radius: var(--r-sm); box-shadow: inset 2px 0 0 var(--brand); }
+/* 章纲行可点击：hover 给反馈，右侧给一句「看记录 ›」，不然用户不知道能点 */
+.row[data-novelchapter]:hover { background: var(--surface-2); border-radius: var(--r-sm); }
+.row-hint { font-size: 10px; color: var(--text-4); white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .icon-btn {

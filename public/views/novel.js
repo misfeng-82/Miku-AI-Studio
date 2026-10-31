@@ -123,7 +123,8 @@ function outlineCard(b) {
   const chapters = o.chapters ?? [];
   const written = new Map((b.chapters ?? []).map((c) => [c.index, c]));
   return `<div class="card">
-    <div class="card-head"><div><h2>章纲与伏笔</h2><div class="sub">${chapters.length} 章 · ${(o.foreshadow ?? []).length} 条伏笔 · ${(o.volumes ?? []).length} 卷</div></div>
+    <div class="card-head"><div><h2>章纲与伏笔</h2>
+      <div class="sub">${chapters.length} 章 · ${(o.foreshadow ?? []).length} 条伏笔 · ${(o.volumes ?? []).length} 卷 · <b>点任意一行看它的生成记录</b></div></div>
       <div class="actions">${busyBtn('novelOutline', '重排章纲', 'refresh')}</div></div>
 
     <div class="rows" style="max-height:420px;overflow:auto">${chapters.map((c) => {
@@ -137,6 +138,7 @@ function outlineCard(b) {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           ${chapterTag(ch)}
+          <span class="row-hint">${ch?.text ? '看记录 ›' : '未写'}</span>
           ${ch?.text ? `<button class="btn btn-sm" data-copychapter="${c.index}" title="复制这一章完整正文">${ICONS.copy}</button>` : ''}
           <button class="btn btn-sm" data-novelwrite="${c.index}">${ch?.text ? '重写' : '写这章'}</button>
         </div>
@@ -165,6 +167,7 @@ function outlineCard(b) {
  */
 function chapterRecordCard(b) {
   const list = [...(b.chapters ?? [])].filter((c) => c.text).sort((a, z) => a.index - z.index);
+  // 没显式选过就默认最新一章：进书先看到东西，比看到「请先选择」友好
   const sel = Number(state.data.novel?.sel) || (list.length ? list[list.length - 1].index : null);
   const ch = list.find((c) => c.index === sel) ?? null;
 
@@ -554,7 +557,9 @@ export async function confirmFore(id, fid) {
 /** 打开一本书：拉完整详情（书 + 设定门 + 就绪度） */
 export async function openBook(id) {
   const r = await api.novel(id);
-  state.data.novel = { ...(state.data.novel ?? {}), book: r.book, gates: r.gates, readiness: r.readiness };
+  const written = (r.book.chapters ?? []).filter((c) => c.text).map((c) => c.index);
+  const sel = written.length ? Math.max(...written) : null;
+  state.data.novel = { ...(state.data.novel ?? {}), book: r.book, gates: r.gates, readiness: r.readiness, sel };
 }
 
 /** 导出全书 markdown */
