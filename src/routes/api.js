@@ -582,6 +582,12 @@ api.post('/api/novels/:id/chapters/:cid/compose', async (req, res) => {
   }));
 });
 
+api.post('/api/novels/:id/chapters/:cid/title', async (req, res) =>
+  sendJson(res, 200, await studio.suggestTitle(req.params.id, req.params.cid)));
+
+api.post('/api/novels/:id/auto-titles', async (req, res) =>
+  sendJson(res, 200, await studio.autoTitles(req.params.id)));
+
 api.post('/api/novels/:id/chapters/:cid/tidy', async (req, res) =>
   sendJson(res, 200, await studio.tidyChapter(req.params.id, req.params.cid)));
 

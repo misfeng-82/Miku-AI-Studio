@@ -230,6 +230,65 @@ __PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words })
   return { chapter, added: clean.length, memory: book.memory };
 }
 
+/* ============================ 章名 ============================ */
+
+const TITLE_SYSTEM = `你是给章节起名的编辑。只输出一个章名，不要任何解释。
+要求：8 字以内；不带「第N章」；不用书名号、引号、句号；要具体（能看出这一章发生了什么），
+不要用「转折」「危机」这类空词；可以用人、物、动作或一句话里的关键意象。`;
+
+/** 给一章起名：有正文就按正文，没有就按设定与大纲里的目标 */
+export async function suggestTitle(id, chapterId) {
+  const book = repo.getNovel(id);
+  const chapter = (book.chapters ?? []).find((c) => c.id === chapterId);
+  if (!chapter) throw notFound(`章节 ${chapterId} 不存在`);
+
+  const outline = (book.settings?.outline ?? []).find((o) => o.index === chapter.index);
+  const body = (chapter.text ?? '').slice(0, 1200);
+  const user = `【作品】《${book.title}》${book.genre ? `｜${book.genre}` : ''}
+${book.settings?.premise ? `一句话故事：${book.settings.premise}` : ''}
+【本章】第 ${chapter.index} 章${outline?.goal ? `｜目标：${outline.goal}` : ''}
+${body ? `【正文开头】\n${body}` : '（这一章还没写正文，按目标起一个合适的章名）'}
+
+只输出章名。
+
+__TASK__: noveltitle
+__PARAMS__: ${JSON.stringify({ index: chapter.index, title: book.title })}`;
+
+  const raw = String(await complete({ system: TITLE_SYSTEM, user }) ?? '');
+  const title = raw.replace(/[「」“”"《》\s]/g, '').replace(/^第?\d+章?/, '').slice(0, 12);
+  if (!title) throw badRequest('模型没有给出章名，请重试');
+
+  chapter.title = title;
+  chapter.updatedAt = new Date().toISOString();
+  await repo.saveNovel(book);
+  logger.info('novel.title', { id, chapterId, title });
+  return { chapter, title };
+}
+
+/**
+ * 批量起名：只处理「还是默认名」的章节（第N章 / 空 / 未命名），已改过的不动。
+ * 一次最多 20 章——再多就是一次几十次调用，费用和等待都不合适。
+ */
+export async function autoTitles(id) {
+  const book = repo.getNovel(id);
+  const targets = (book.chapters ?? [])
+    .filter((c) => !c.title || /^第\d+章$/.test(c.title) || c.title === '未命名')
+    .sort((a, b) => a.index - b.index)
+    .slice(0, 20);
+  if (!targets.length) return { updated: [], skipped: (book.chapters ?? []).length };
+
+  const updated = [];
+  for (const ch of targets) {
+    try {
+      const r = await suggestTitle(id, ch.id);
+      updated.push({ index: ch.index, title: r.title });
+    } catch (e) {
+      logger.warn('novel.title.fail', { id, index: ch.index, reason: e.message });
+    }
+  }
+  return { updated, skipped: (book.chapters ?? []).length - updated.length };
+}
+
 /* ============================ 体检 / 导出 ============================ */
 
 /** 本章 AI 痕迹扫描（纯本地，不花额度） */

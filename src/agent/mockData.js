@@ -751,6 +751,12 @@ export function mockComplete({ system = '', user = '' } = {}) {
     case 'novelbible': return JSON.stringify(buildNovelBible(params), null, 2);
     case 'noveloutline': return JSON.stringify(buildNovelOutline(params), null, 2);
     case 'novelchapter': return buildNovelChapter(params);
+    // 章名：样本引擎返回一个像样的短名，方便演示与测试
+    case 'noveltitle': {
+      const names = ['灯', '票根', '雾起', '第三道门', '名字', '旧秤', '夜航', '台阶'];
+      const i = Math.max(1, Number(params.index) || 1);
+      return names[(i - 1) % names.length];
+    }
     default: return JSON.stringify({ ok: true, note: 'mock 默认应答', task }, null, 2);
   }
 }

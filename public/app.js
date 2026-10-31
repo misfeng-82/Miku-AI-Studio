@@ -201,6 +201,17 @@ async function saveNovelNow() {
   }
 }
 
+/**
+ * 编辑器高度跟随内容：整页只留一个滚动条。
+ * 早先是固定高度的 textarea，内部滚动条夹在三栏里拖不动、右下角手柄也不灵。
+ */
+function growNovelEditor() {
+  const ta = novelEditor();
+  if (!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = `${Math.max(480, ta.scrollHeight + 2)}px`;
+}
+
 function scheduleNovelSave() {
   clearTimeout(NOVEL_SAVE_TIMER);
   const chip = document.querySelector('.wb-save');
@@ -446,7 +457,7 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack],[data-novelcompose],[data-aipreset],[data-aictx],[data-aichar],[data-noveltidy],[data-novelrestore]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack],[data-novelcompose],[data-aipreset],[data-aictx],[data-aichar],[data-noveltidy],[data-novelrestore],[data-noveltitlegen],[data-novelautotitles],[data-novelchnav]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -539,6 +550,18 @@ document.addEventListener('click', (e) => {
     const chars = ai.chars ?? [];
     state.cfg.novelAi = { ...ai, chars: chars.includes(name) ? chars.filter((x) => x !== name) : [...chars, name] };
     save(); render(); return;
+  }
+  if (btn.dataset.noveltitlegen !== undefined) {
+    run('novelCompose', async () => { await saveNovelNow(); await novel.suggestTitle(); render(); });
+    return;
+  }
+  if (btn.dataset.novelautotitles !== undefined) {
+    run('novelCompose', async () => { await novel.autoTitles(); render(); });
+    return;
+  }
+  if (btn.dataset.novelchnav !== undefined) {
+    saveNovelNow().then(() => novel.navChapter(btn.dataset.novelchnav)).then(() => { render(); focusEditor(); }).catch(() => render());
+    return;
   }
   if (btn.dataset.noveltidy !== undefined) {
     run('novelCompose', async () => {
@@ -676,7 +699,7 @@ document.addEventListener('keydown', (e) => {
 
 /* 小说写作台：正文输入自动保存、标题与设定失焦保存、人物/规则回车添加 */
 document.addEventListener('input', (e) => {
-  if (e.target.matches('[data-noveltext]')) scheduleNovelSave();
+  if (e.target.matches('[data-noveltext]')) { scheduleNovelSave(); growNovelEditor(); }
 });
 document.addEventListener('change', (e) => {
   if (e.target.matches('[data-novelai]')) {

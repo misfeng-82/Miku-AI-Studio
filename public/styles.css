@@ -780,10 +780,14 @@ input::placeholder, textarea::placeholder { color: var(--text-4); }
 }
 .wb-ch-title:focus { outline: none; background: var(--surface-2); }
 .wb-editor {
-  flex: 1; min-height: 420px; margin: 0 14px; padding: 14px 16px;
+  /* 不再用内部滚动条：高度随内容长，整页只有一个滚动条。
+     早先是 flex:1 + 内部 overflow，滚动条夹在三栏里挤得拖不动，
+     右下角的缩放手柄在 flex 布局下也不生效。 */
+  min-height: 480px; margin: 0 14px; padding: 14px 16px;
   border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--surface-1); color: var(--text-1);
-  font-size: 13.5px; line-height: 2; resize: vertical;
+  font-size: 13.5px; line-height: 2; resize: none;
+  overflow: hidden; height: auto;
   font-family: var(--font-serif, inherit);
 }
 .wb-editor:focus { outline: none; border-color: var(--border-2); }

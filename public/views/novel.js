@@ -215,6 +215,9 @@ function workbench(b) {
   const panel = state.data.novel?.panel ?? 'settings';
   const words = list.reduce((n, c) => n + (c.words ?? 0), 0);
   const saving = state.data.novel?.saving;
+  const pos = ch ? list.findIndex((x) => x.id === ch.id) : -1;
+  const hasPrev = pos > 0;
+  const hasNext = pos >= 0 && pos < list.length - 1;
 
   return `
   <div class="card wb-shell">
@@ -231,7 +234,10 @@ function workbench(b) {
       <aside class="wb-side">
         <div class="wb-side-head">
           <span class="fl">章节</span>
-          <button class="btn btn-sm" data-noveladdch>+ 新建</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm" data-novelautotitles title="给还是「第N章」的章节批量起名">起名</button>
+            <button class="btn btn-sm" data-noveladdch>+ 新建</button>
+          </div>
         </div>
         <div class="wb-chlist">${list.map((c) => chapterItem(c, ch && c.id === ch.id)).join('') || '<div class="muted" style="font-size:11px;padding:8px">还没有章节，点「+ 新建」。</div>'}</div>
       </aside>
@@ -239,7 +245,10 @@ function workbench(b) {
       <main class="wb-main">
         ${ch ? `
         <div class="wb-ch-head">
+          <button class="btn btn-sm" data-novelchnav="prev" title="上一章" ${!hasPrev ? 'disabled' : ''}>←</button>
           <input class="wb-ch-title" data-novelchtitle value="${esc(ch.title || '')}" placeholder="章节标题" />
+          <button class="btn btn-sm" data-noveltitlegen title="按本章内容起名（调一次模型）">${ICONS.wand}起名</button>
+          <button class="btn btn-sm" data-novelchnav="next" title="下一章" ${!hasNext ? 'disabled' : ''}>→</button>
           <span class="muted" style="font-size:10.5px">${ch.words ?? 0} 字</span>
         </div>
         <textarea class="wb-editor" data-noveltext spellcheck="false" placeholder="在这里写正文。停手会自动保存；也可以点「续写」让模型接着写。">${esc(ch.text ?? '')}</textarea>
@@ -501,6 +510,37 @@ export async function composeNext() {
   const full = await api.novel(b.id);
   state.data.novel = { ...(state.data.novel ?? {}), book: full.book, activeId: r.chapter.id, panel: 'ai' };
   toast(`第 ${r.chapter.index} 章起草完成：${r.chapter.words} 字`);
+}
+
+/** 给当前章起名 */
+export async function suggestTitle() {
+  const b = book(); const ch = cur();
+  if (!b || !ch) return;
+  const r = await api.novelTitle(b.id, ch.id);
+  state.data.novel = { ...(state.data.novel ?? {}), book: { ...b, chapters: b.chapters.map((x) => (x.id === r.chapter.id ? r.chapter : x)) } };
+  toast(`本章起名：${r.title}`);
+}
+
+/** 批量给默认名的章节起名（只动「第N章」这类，改过的不覆盖） */
+export async function autoTitles() {
+  const b = book();
+  if (!b) return;
+  const r = await api.novelAutoTitles(b.id);
+  if (!r.updated.length) return toast('没有需要起名的章节（都改过名了）', 'warn');
+  const full = await api.novel(b.id);
+  state.data.novel = { ...(state.data.novel ?? {}), book: full.book };
+  toast(`已起名 ${r.updated.length} 章：${r.updated.slice(0, 3).map((x) => `第${x.index}章 ${x.title}`).join('、')}${r.updated.length > 3 ? '…' : ''}`);
+}
+
+/** 上一章 / 下一章 */
+export async function navChapter(dir) {
+  const list = chapters();
+  const ch = cur();
+  if (!ch) return;
+  const i = list.findIndex((x) => x.id === ch.id);
+  const target = dir === 'prev' ? list[i - 1] : list[i + 1];
+  if (!target) return;
+  await selectChapter(target.id);
 }
 
 export async function copyChapterText() {

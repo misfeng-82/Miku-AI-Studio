@@ -1012,6 +1012,35 @@ await t('POST restore：时光机还原到续写前', async () => {
   return `还原到 ${new Date(snap.ts).toISOString().slice(11, 19)}`;
 });
 
+await t('POST 起名：按本章内容给一个章名', async () => {
+  const list = await call('GET', '/api/novels');
+  const nid = list.data.items.find((x) => x.title === '整理测试书')?.id;
+  const full = await call('GET', `/api/novels/${nid}`);
+  const cid = full.data.book.chapters[0].id;
+  const r = await call('POST', `/api/novels/${nid}/chapters/${cid}/title`, {});
+  is(r, 200, 'suggest title');
+  truthy(r.data.title && r.data.title.length <= 12, `章名应 ≤12 字，实际「${r.data.title}」`);
+  truthy(!/^第\d+章/.test(r.data.title), '章名不应带「第N章」前缀');
+  return `第1章 → ${r.data.title}`;
+});
+
+await t('POST 批量起名：只动默认名章节', async () => {
+  const created = await call('POST', '/api/novels', { title: '批量起名测试' });
+  const nid = created.data.book.id;
+  novelCleanup.push(nid);
+  // 两章默认名 + 一章已经起过名
+  await call('POST', `/api/novels/${nid}/chapters`, { title: '第1章' });
+  await call('POST', `/api/novels/${nid}/chapters`, { title: '第2章' });
+  const named = await call('POST', `/api/novels/${nid}/chapters`, { title: '已经起好的名字' });
+  const r = await call('POST', `/api/novels/${nid}/auto-titles`, {});
+  is(r, 200, 'auto titles');
+  eq(r.data.updated.length, 2, '只应处理两个默认名章节');
+  const full = await call('GET', `/api/novels/${nid}`);
+  const kept = full.data.book.chapters.find((c) => c.id === named.data.chapter.id);
+  eq(kept.title, '已经起好的名字', '已改过名的章节不应被覆盖');
+  return `起名 ${r.data.updated.map((x) => x.title).join('、')}`;
+});
+
 await t('PATCH 修改书名', async () => {
   const r = await call('PATCH', `/api/novels/${novelId}`, { title: '渡口灯（改）' });
   is(r, 200, 'patch book');
