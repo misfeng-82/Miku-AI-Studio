@@ -1,5 +1,6 @@
 # CI：每次 push / PR 自动跑全部 6 套检查。
-# 本项目零第三方依赖（只用 Node 标准库），无需 npm install，直接以 Node 22 运行。
+# 现在只有一个官方依赖（@tencent-ai/workbuddy-cloud-sdk，零三方依赖），
+# 因此需要一次 npm ci；其余仍全部是 Node 标准库。
 name: CI
 
 on:
@@ -17,6 +18,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - name: 安装依赖（仅云服务 SDK）
+        run: npm ci --no-audit --no-fund
 
       # 四套离线检查：单测自测 / 前端接线 / 引擎冒烟 / 仓库密钥扫描
       - name: 离线检查（自测 / 接线 / 引擎 / 密钥扫描）
@@ -36,8 +41,8 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8899/ready
 
-      - name: 接口全量测试（42 端点 + 边界情况）
+      - name: 接口全量测试（141 项 + 边界情况）
         run: HOST=127.0.0.1 PORT=8899 node scripts/featuretest.mjs
 
-      - name: 页面渲染检查（18 视图 × 空态/有数据）
+      - name: 页面渲染检查（20 视图 × 空态/有数据）
         run: HOST=127.0.0.1 PORT=8899 node scripts/rendercheck.mjs
