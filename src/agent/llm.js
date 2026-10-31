@@ -5,6 +5,8 @@ import { loadJsonLike } from './jsonRepair.js';
 import { mockComplete } from './mockData.js';
 import { classifyError, backoffMs, ERROR_KIND, JSON_REPAIR_HINT } from './retryPolicy.js';
 import { chatComplete, normalizeSettings, applyPreset, PRESETS } from './llmClient.js';
+import { cloudEnabled, cloudClient } from '../cloud/client.js';
+import { cloudChat, cloudModel } from '../cloud/llm.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import * as llmUsageRepo from '../repo/llmUsageRepo.js';
 
@@ -23,6 +25,11 @@ export function effectiveConfig() {
       return { cfg: null, source: 'mock' };
     }
     if (!config.llm.apiKey || !config.llm.baseUrl) {
+      // 云端已开通云服务：走免密钥的云端模型（优先级低于网页里显式填的 Key，
+      // 高于 .env 与本地样本——用户明确填了 Key 就应该用他的）
+      if (cloudEnabled()) {
+        return { cfg: { provider: 'cloud' }, source: 'cloud' };
+      }
       // 产品默认真实模式：没配置就是「未接入」。
       // 绝不静默降级成样本稿——那会让用户以为模型写出来了，实际是内置模板。
       return { cfg: null, source: 'unconfigured' };
@@ -69,6 +76,27 @@ export async function complete({ system = '', user = '', signal, attempt = 1 } =
     if (source === 'mock' || !cfg) {
     logger.debug('llm.mock', { chars: user.length });
     return mockComplete({ system, user });
+  }
+  // 云端模型（免密钥）：走官方 SDK 的流式接口，这里收集成整段文本
+  if (source === 'cloud') {
+    const messages = [
+      ...(system ? [{ role: 'system', content: system }] : []),
+      { role: 'user', content: user },
+    ];
+    const t0 = Date.now();
+    try {
+      const r = await cloudChat({ messages, signal });
+      llmUsageRepo.record({
+        task: /__TASK__:\s*([a-zA-Z_-]+)/.exec(user)?.[1] ?? 'other',
+        model: r.model, ms: Date.now() - t0, ok: true, attempt,
+        promptTokens: r.usage?.prompt_tokens ?? 0,
+        completionTokens: r.usage?.completion_tokens ?? 0,
+      });
+      return r.text;
+    } catch (err) {
+      llmUsageRepo.record({ task: 'cloud', ms: Date.now() - t0, ok: false, attempt, error: err.message });
+      throw err;
+    }
   }
   // 任务标识取自 prompt 里的 __TASK__ 标记（outline / epscript / eval…），
   // 用来把用量按场景分开统计——用户要能看出「钱主要花在哪一步」

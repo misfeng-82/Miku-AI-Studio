@@ -1,0 +1,8 @@
+{
+  "resourceId": "wbcs_dP63UVnBeWIEEpIyKdWl4n",
+  "endpoint": "https://miku-drama-studio.app.workbuddy.host",
+  "oauthRelayBaseUrl": "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
+  "publishableKey": "wbpk_vAcW40CqDWE8O7tL1yZ2G7_M0Li7kIOaIQdte9wpgnP9FltteJ4PNnt",
+  "note": "公开配置（仅标识应用、不带权限），可随代码发布；本机可用 data/cloud.json 覆盖",
+  "model": "glm-5.3-flash"
+}

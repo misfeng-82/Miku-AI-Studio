@@ -23,5 +23,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "licenseNote": "混合许可：本项目原创部分 MIT，src/engine/ 源自 shuohao-skills 适用 Apache-2.0。详见 LICENSE / NOTICE / THIRD-PARTY.md",
-  "dependencies": {}
+  "dependencies": {
+    "@tencent-ai/workbuddy-cloud-sdk": "^0.1.4-dev.ca27990.202610161713"
+  }
 }
