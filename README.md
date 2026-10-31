@@ -57,6 +57,24 @@
 node src/server.js      # 打开 http://127.0.0.1:8787
 ```
 
+## 云服务接入（已开通）
+
+已接入 WorkBuddy 云服务（应用：Miku短剧创作台），**大模型调用免密钥**——访客打开网站不需要填任何 Key 就能生成。
+
+- 配置在 `src/cloud/defaultConfig.json`（公开配置：endpoint + publishableKey，仅标识应用、不带权限）；
+  本机可用 `data/cloud.json` 覆盖（该文件 gitignore，不会上传）
+- 调用走官方 SDK `@tencent-ai/workbuddy-cloud-sdk`（零第三方依赖），只支持流式，代码里按 chunk 收全文
+- 模型默认 `glm-5.3-flash`：实测 `auto` 对长输出会卡到空内容超时，具体模型 1.5–2 秒返回
+- 来源优先级：网页里显式填的 Key > 云服务 > `.env` > 本地样本；`USE_MOCK=1` 时走样本（测试不花钱、不断网）
+
+```bash
+# 本地验证云端链路（空数据目录模拟「没填 Key」）
+PORT=8901 DATA_DIR=/tmp/mk-cloud node src/server.js
+curl -s localhost:8901/api/meta        # llm.mode 应为 cloud
+```
+
+数据库 / 登录 / 文件存储三个模块**尚未接入**（作品与小说目前存在本地 JSON）。
+
 ## 部署（对外发布时必读）
 
 本机跑不需要任何环境变量。**一旦对外发布，必须设 `NODE_ENV=production`**，否则：
@@ -161,13 +179,13 @@ NODE_ENV=production PORT=8080 node src/server.js
 ## 验证
 
 ```bash
-node scripts/selftest.mjs   # 87 项单元/集成自测（不需要服务；自动强制离线，不碰真 Key）
+node scripts/selftest.mjs   # 135 项单元/集成自测（不需要服务；自动强制离线，不碰真 Key）
 node scripts/secretscan.mjs # 提交前必跑：确认仓库里没有明文密钥（退出码可直接卡口）
 node scripts/uicheck.mjs    # 前端接线审计：DOM id / 图标 / api 方法 / 页面 / 按钮处理器（不需要服务）
 node scripts/enginecheck.mjs      # 引擎冒烟：夹具过 14 道大纲门 + 10 道剧本门，验 seed/stats/renderHtml
 node scripts/smoke.mjs      # 59 项端到端冒烟（需服务在跑）
-node scripts/featuretest.mjs      # 112 项全功能矩阵：42 个端点 × 正常流程 + 边界情况（需服务在跑）
-node scripts/rendercheck.mjs      # 36 项页面渲染：18 个视图 × 空状态/有数据（需服务在跑）
+node scripts/featuretest.mjs      # 141 项全功能矩阵：端点 × 正常流程 + 边界情况（需服务在跑）
+node scripts/rendercheck.mjs      # 45 项页面渲染：20 个视图 × 空状态/有数据 + 写作台右栏页签（需服务在跑）
 node scripts/probe-import.mjs     # 剧本导入探针：两种文本格式 / JSON → 引擎契约
 node scripts/probe-scriptgen.mjs  # 剧本生成探针：三段式 mock 全链路 + 门禁对账
 node scripts/diag-gate.mjs        # 门禁诊断：从 data/ 捞最近一份生成稿，把未过的门连细节打出来
