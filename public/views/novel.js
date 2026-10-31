@@ -1,5 +1,5 @@
 /* 视图域：小说创作 —— 长篇（设定集 → 章纲 → 逐章正文） */
-import { state, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download, copyText } from '../core.js';
+import { state, api, esc, ICONS, busyBtn, pageHead, gateList, statStrip, toast, download } from '../core.js';
 
 const GENRES = ['悬疑', '都市', '古风', '科幻', '玄幻', '现实'];
 const AUDIENCES = ['男频', '女频', '通用'];
@@ -294,10 +294,3 @@ export async function backToShelf() {
   const r = await api.novels();
   state.data.novel = { list: r.items, book: null, gates: [], readiness: null };
 }
-
-/** 复制正文（沿用 data-copy 的兜底逻辑，这里只提供文本获取入口） */
-export function chapterText(index) {
-  return book()?.chapters?.find((c) => c.index === index)?.text ?? '';
-}
-
-export { copyText };
