@@ -555,8 +555,9 @@ api.post('/api/novels/:id/chapter', async (req, res) => {
   sendJson(res, 200, await novelService.writeChapter(req.params.id, index, {
     title: optionalString(b.title, 'title', { max: 40 }) ?? '',
     brief: optionalString(b.brief, 'brief', { max: 500 }) ?? '',
-    wordTarget: b.wordTarget === undefined || b.wordTarget === null ? null
-      : requireInt(b.wordTarget, 'wordTarget', { min: 100, max: 50000, fallback: null }),
+    // undefined/null = 交给服务层按本书单章字数瞄准；0 = 明确不设目标
+    wordTarget: b.wordTarget === undefined || b.wordTarget === null ? undefined
+      : requireInt(b.wordTarget, 'wordTarget', { min: 0, max: 50000, fallback: undefined }),
     freedom: b.freedom === undefined ? undefined : Boolean(b.freedom),
   }));
 });

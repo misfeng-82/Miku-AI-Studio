@@ -13,6 +13,7 @@ import { gateReport as outlineGates } from '../src/engine/outline.mjs';
 import { gateReport as scriptGates } from '../src/engine/script.mjs';
 import { analyzeText as deaiAnalyze, deaiGate, extractBody, bankStats } from '../src/engine/deaiScan.mjs';
 import { bookGates, chapterGates, readiness, wordCount } from '../src/engine/novelGates.mjs';
+import { tidyDialogue, tidyChapterBody } from '../src/engine/textClean.mjs';
 import {
   analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
 } from '../src/engine/novelMemory.mjs';
@@ -1206,6 +1207,35 @@ t('记忆：连续性检查能认出设定外的新名字', () => {
   const chapter = { index: 1, memory: { characters: ['沈砚', '马保安'] } };
   const r = continuityCheck({ book, chapter });
   assert.deepEqual(r.newcomers, ['马保安']);
+});
+
+
+/* ---- 排版清理（引号内多余标点 / 叠标点）---- */
+t('清理：引号内的句号要去掉（「急事。」→「急事」）', () => {
+  assert.equal(tidyDialogue('「急事。」').text, '「急事」');
+  assert.equal(tidyDialogue('他抬头：「急事。」然后走了。').text, '他抬头：「急事」然后走了。');
+});
+
+t('清理：语气标点要保留（！？…不要动）', () => {
+  assert.equal(tidyDialogue('「急事！」').text, '「急事！」');
+  assert.equal(tidyDialogue('「真的？！」他问。').text, '「真的？！」他问。');
+  assert.equal(tidyDialogue('「等一下……」他停了。').text, '「等一下……」他停了。');
+});
+
+t('清理：引号内开头的接续标点要去掉', () => {
+  assert.equal(tidyDialogue('「，你来。」她说。').text, '「你来」她说。');
+});
+
+t('清理：叠标点合并成一个，省略号不合并', () => {
+  assert.equal(tidyDialogue('他说完了。。。。').text, '他说完了。');
+  assert.equal(tidyDialogue('真的！！？').text, '真的！！？'.replace('！！', '！'), '叹号叠用应合并');
+  assert.equal(tidyDialogue('他想了想……').text, '他想了想……', '省略号不能被合并成一个点');
+});
+
+t('清理：整章收尾只动排版，不动字数语义', () => {
+  const { text, changes } = tidyChapterBody('  第一段。「急事。」\n\n\n\n第二段。  ');
+  assert.equal(text, '第一段。「急事」\n\n第二段。');
+  assert.ok(changes.length >= 2, '应记录清理项');
 });
 
 for (const [name, fn] of asyncTests) {

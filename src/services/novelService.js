@@ -13,6 +13,7 @@
  * 模型只负责「写」，不负责「评判自己写得对不对」。
  */
 import { complete, completeJson } from '../agent/llm.js';
+import { tidyChapterBody } from '../engine/textClean.mjs';
 import { logger } from '../logger.js';
 import { badRequest, notFound } from '../errors.js';
 import * as repo from '../repo/novelRepo.js';
@@ -22,7 +23,7 @@ import {
   analyzeChapter, buildBookMemory, memoryToPrompt, updateForeshadow, continuityCheck, confirmForeshadow,
 } from '../engine/novelMemory.mjs';
 import {
-  BIBLE_SYSTEM, bibleUser, OUTLINE_SYSTEM, outlineUser, CHAPTER_SYSTEM, chapterUser,
+  BIBLE_SYSTEM, bibleUser, OUTLINE_SYSTEM, outlineUser, CHAPTER_SYSTEM, chapterUser, chapterContinueUser,
 } from '../assets/novelPrompts.js';
 
 /** 一章重写几次：第一次按规范写，第二次带门禁诊断修；再多就交给人 */
@@ -227,7 +228,13 @@ export async function writeChapter(id, index, opts = {}) {
   }
   if (String(opts.title ?? '').trim()) entry = { ...entry, title: String(opts.title).trim() };
 
-  const wordTarget = Number(opts.wordTarget) > 0 ? Number(opts.wordTarget) : null;
+  /* 目标字数默认取本书的单章字数：
+     早先留空就等于「不设目标」，模型于是只交几百字——章节太短的根因在这里。
+     现在「留空」= 按本书单章字数瞄准；要真的不设目标，显式传 0。 */
+  const rawTarget = opts.wordTarget;
+  const wordTarget = rawTarget === 0
+    ? null
+    : Number(rawTarget) > 0 ? Number(rawTarget) : (Number(book.wordsPerChapter) || 3000);
   const brief = String(opts.brief ?? '').trim();
 
   const prev = (book.chapters ?? []).find((c) => c.index === idx - 1) ?? null;
@@ -244,6 +251,7 @@ export async function writeChapter(id, index, opts = {}) {
   let scan = null;
   let gates = [];
   let error = '';
+  let tidyChanges = [];
 
   for (let round = 0; round <= REPAIR_ROUNDS; round += 1) {
     const problems = round === 0 ? [] : gates.filter((g) => !g.ok).map((g) => ({ label: g.label, detail: g.detail }));
@@ -254,7 +262,27 @@ export async function writeChapter(id, index, opts = {}) {
         brief, wordTarget,
       }),
     });
-    text = stripHeading(raw);
+    const cleaned = tidyChapterBody(stripHeading(raw));
+    text = cleaned.text;
+    tidyChanges = cleaned.changes;
+
+    // 明显偏短（不足目标 55%）时从断点续写一次，而不是整章重写
+    if (wordTarget && wordCount(text) < wordTarget * 0.55 && round === 0) {
+      try {
+        const more = await complete({
+          system: CHAPTER_SYSTEM,
+          user: chapterContinueUser({ book, chapter: entry, written: text, wordTarget }),
+        });
+        const extra = tidyChapterBody(stripHeading(more)).text;
+        if (extra && wordCount(extra) > 200) {
+          text = `${text}\n\n${extra}`;
+          logger.info('novel.chapter.continued', { id, index: idx, before: wordCount(cleaned.text), after: wordCount(text) });
+        }
+      } catch (e) {
+        logger.warn('novel.chapter.continue.fail', { id, index: idx, reason: e.message });
+      }
+    }
+
     if (wordCount(text) < 200) {
       error = '模型返回的正文过短，已丢弃这一版';
       logger.warn('novel.chapter.short', { id, index: idx, round, words: wordCount(text) });
@@ -286,6 +314,8 @@ export async function writeChapter(id, index, opts = {}) {
     gates,
     report: scan ? { dimensions: scan.dimensions, issues: scan.issues, clicheTotal: scan.clicheTotal } : null,
     memory,
+    tidy: tidyChanges,
+    targetWords: wordTarget,
     ok: gates.every((g) => g.severity !== 'hard' || g.ok),
     freedom,
     error,

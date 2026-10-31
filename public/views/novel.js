@@ -157,7 +157,7 @@ function latestChapterCard(b) {
   if (!ch) return '';
   return `<div class="card">
     <div class="card-head"><div><h2>第${ch.index}章 ${esc(ch.title)}</h2>
-      <div class="sub">${ch.words} 字 · AI 痕迹 ${ch.scan?.score ?? '—'}（${esc(ch.scan?.grade ?? '')}）</div></div>
+      <div class="sub">${ch.words} 字${ch.targetWords ? `（目标 ${ch.targetWords}）` : ''} · AI 痕迹 ${ch.scan?.score ?? '—'}（${esc(ch.scan?.grade ?? '')}）${(ch.tidy ?? []).length ? ` · 排版清理 ${ch.tidy.length} 处` : ''}</div></div>
       <div class="chip-row">${chapterTag(ch)}
         <button class="btn btn-sm" data-copy="${esc(ch.text)}">${ICONS.copy}复制正文</button>
       </div></div>
@@ -255,10 +255,10 @@ function targetCard(b) {
       <textarea rows="2" data-cfg="novelBrief" placeholder="如：他第一次开那扇门，代价是交出一个名字；结束时门外有人等他。">${esc(c.novelBrief)}</textarea></label>
 
     <div class="form-2" style="margin-top:12px">
-      <label class="field"><span class="fl">目标字数（可空 = 由内容决定）</span>
-        <input type="number" min="0" step="500" data-cfg="novelWordTarget" value="${esc(c.novelWordTarget)}" placeholder="不填就是不设限" /></label>
-      <div class="field"><span class="fl">建议</span>
-        <div class="muted" style="font-size:11px;line-height:1.7">写长写短都行，写到大纲以外也行（会自动补进章纲列表）。</div>
+      <label class="field"><span class="fl">目标字数（留空 = 按本书单章 ${b.wordsPerChapter || 3000} 字）</span>
+        <input type="number" min="0" step="500" data-cfg="novelWordTarget" value="${esc(c.novelWordTarget)}" placeholder="${b.wordsPerChapter || 3000}" /></label>
+      <div class="field"><span class="fl">说明</span>
+        <div class="muted" style="font-size:11px;line-height:1.7">留空按本书单章字数瞄准；填 <b>0</b> 才是完全不设目标。写短了会自动续写一次补齐，写长不拦。</div>
       </div>
     </div>
 
@@ -350,7 +350,9 @@ export const runners = {
     const b = book();
     if (!b) return toast('先选一本书', 'warn');
     const idx = Number(cfg().novelChapter) || nextIndex(b);
-    const wordTarget = Number(cfg().novelWordTarget) > 0 ? Number(cfg().novelWordTarget) : null;
+    // 留空 = 交给服务层按本书单章字数；填 0 = 明确不设目标
+    const rawTarget = String(cfg().novelWordTarget ?? '').trim();
+    const wordTarget = rawTarget === '' ? undefined : Number(rawTarget);
     const r = await api.novelChapter(b.id, idx, {
       title: String(cfg().novelChapterTitle || '').trim(),
       brief: String(cfg().novelBrief || '').trim(),

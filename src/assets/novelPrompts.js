@@ -154,7 +154,7 @@ const chapterUser = ({ book, chapter, prevText, problems, memoryText, brief, wor
 ${[chapter.goal && `核心事件：${chapter.goal}`, chapter.conflict && `冲突：${chapter.conflict}`,
     chapter.turn && `转折：${chapter.turn}`, chapter.hook && `想留的结尾：${chapter.hook}`,
     brief && `作者补充（优先遵守）：${brief}`].filter(Boolean).join('\n')}
-篇幅：${wordTarget ? `希望约 ${wordTarget} 字（可上下浮动，内容需要多少写多少）` : '由内容决定，不设字数目标'}
+篇幅：${wordTarget ? `目标约 ${wordTarget} 字。允许上下浮动，但明显少于这个量会让读者觉得这一章被敷衍了；内容确实需要更多就继续写，不要为了收在目标上砍戏。` : '由内容决定，不设字数目标'}
 
 【连续性记忆（前面写过什么，必须一致；不要凭空改设定或复活已死的人）】
 ${memoryText || '（这是第一章，没有前情）'}
@@ -176,8 +176,27 @@ __TASK__: novelchapter
 __PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: wordTarget || book.wordsPerChapter || 0 })}`;
 };
 
+/**
+ * 续写：模型第一遍写得偏短时，从断点接着写（不是重写）。
+ * 为什么单独做一次而不是让它「一开始写长点」：单次请求的注意力有限，
+ * 长篇一次要求 4000 字常常前半段饱满、后半段赶工；分两次写反而更稳。
+ */
+const chapterContinueUser = ({ book, chapter, written, wordTarget }) => `【已写部分（不要重写、不要复述）】
+${written.slice(-1500)}
+
+【目标章节】第 ${chapter.index} 章${chapter.title ? `《${chapter.title}》` : ''}
+${chapter.goal ? `核心事件：${chapter.goal}` : ''}
+
+【任务】从上面中断的地方**接着往下写**，把这一章补到约 ${wordTarget} 字。
+- 只输出新增的正文，不要重复已写内容，不要重写开头，不要加「接上文」之类的说明。
+- 保持同一场景与同一条叙事线，不要突然跳到别的情节。
+- 段落之间空行分隔，对话统一用中文引号「」。
+
+__TASK__: novelchapter
+__PARAMS__: ${JSON.stringify({ title: book.title, index: chapter.index, words: wordTarget })}`;
+
 export {
   BIBLE_SYSTEM, bibleUser,
   OUTLINE_SYSTEM, outlineUser,
-  CHAPTER_SYSTEM, chapterUser,
+  CHAPTER_SYSTEM, chapterUser, chapterContinueUser,
 };

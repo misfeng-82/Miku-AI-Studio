@@ -934,6 +934,37 @@ await t('POST /api/novels/:id/chapter 写第 1 章（含扫描与六道单章门
   return `${ch.words} 字 · AI 痕迹 ${ch.scan.score} · 6/6 门`;
 });
 
+await t('章节默认按本书单章字数瞄准（不再交几百字）', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const ch = r.data.book.chapters.find((c) => c.index === 1);
+  eq(ch.targetWords, 3000, '未指定时应默认本书单章字数');
+  truthy(ch.words >= 3000 * 0.55, `实际字数应接近目标，实际 ${ch.words}`);
+  return `${ch.words}/${ch.targetWords} 字`;
+});
+
+await t('章节正文已做排版清理：引号内无多余句号', async () => {
+  const r = await call('GET', `/api/novels/${novelId}`);
+  const ch = r.data.book.chapters.find((c) => c.index === 1);
+  truthy(!/「[^」]*。」/.test(ch.text), '不应出现「…。」这种引号内句号');
+  truthy(!/[。，、；：]{2,}/.test(ch.text), '不应出现叠标点');
+  truthy(Array.isArray(ch.tidy), '应记录清理项（可为空数组）');
+  return `清理 ${ch.tidy.length} 处`;
+});
+
+await t('目标字数显式传 0 表示不设目标', async () => {
+  // 自己建一本，避免依赖其它用例的副作用
+  const created = await call('POST', '/api/novels', {
+    title: '不设目标测试书', genre: '悬疑', logline: '所有人都说是意外，只有他记得那盏灯。',
+  });
+  const nid = created.data.book.id;
+  novelCleanup.push(nid);
+  const r = await call('POST', `/api/novels/${nid}/chapter`, { index: 1, wordTarget: 0 });
+  is(r, 200, 'chapter with wordTarget=0');
+  eq(r.data.chapter.targetWords, null, '0 应解释为不设目标');
+  truthy(r.data.chapter.words > 0, '仍应写出正文');
+  return `不设目标 · ${r.data.chapter.words} 字`;
+});
+
 await t('写章后自动提炼连续性记忆', async () => {
   const r = await call('GET', `/api/novels/${novelId}`);
   const book = r.data.book;
