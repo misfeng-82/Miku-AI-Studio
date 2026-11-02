@@ -26,6 +26,7 @@ import * as titleService from '../services/titleService.js';
 import * as relationsService from '../services/relationsService.js';
 import * as deaiService from '../services/deaiService.js';
 import * as studio from '../services/novelStudio.js';
+import { waitHydrate } from '../cloud/storeSync.js';
 import * as settingsRepo from '../repo/settingsRepo.js';
 import { normalizeSettings, maskSettings, PRESETS, chatComplete } from '../agent/llmClient.js';
 import * as llmClient from '../agent/llmClient.js';
@@ -520,7 +521,10 @@ api.post('/api/relations', async (req, res) => {
 
 /* ---------------- 小说写作台（书 / 章节 / 续写 / 导出） ----------------
  * 照墨笔的模型：书是手稿，章节是正文单元；模型只在「续写/起草」时才介入。 */
-api.get('/api/novels', (req, res) => sendJson(res, 200, { items: studio.listBooks() }));
+api.get('/api/novels', async (req, res) => {
+  await waitHydrate();            // 回灌没完就最多等 3 秒，避免首屏看到空列表
+  sendJson(res, 200, { items: studio.listBooks() });
+});
 
 api.post('/api/novels', async (req, res) => {
   const b = req.body ?? {};
@@ -603,6 +607,7 @@ api.get('/api/novels/:id/export', (req, res) => sendJson(res, 200, studio.export
 
 /* ---------------- 项目（用于保存与串联，非必需） ---------------- */
 api.get('/api/projects', async (req, res) => {
+  await waitHydrate();            // 同上：回灌未完成时最多等 3 秒
   sendJson(res, 200, { items: await projects.listProjects() });
 });
 

@@ -51,21 +51,31 @@ export async function pullLight() {
  * 不攒到最后再写——那样用户要等 12 秒才能看到任何项目；
  * 流式以后第一批项目 ~3 秒就能点开。
  */
-export async function streamHeavy(onPage, { pageSize = 16, pages = 8 } = {}) {
+export async function streamHeavy(onPage, { pageSize = 16, pages = 8, concurrency = 2 } = {}) {
   const cloud = client();
   if (!cloud) return { rows: 0 };
   const seen = new Set();
   let total = 0;
-  await Promise.all(Array.from({ length: pages }, async (_, i) => {
-    const { data, error } = await cloud.database
-      .from('kv_store').select('key, value').like('key', 'project-%')
-      .order('updated_at', { ascending: false })   // 最近改过的项目先落地
-      .range(i * pageSize, i * pageSize + pageSize - 1);
-    if (error) throw new Error(error.message ?? '读取云数据库失败');
-    const rows = (data ?? []).filter((r) => r?.key && !NEVER_SYNC.test(r.key) && !seen.has(r.key));
-    for (const r of rows) seen.add(r.key);
-    if (rows.length) { total += onPage(rows); }
-  }));
+  let next = 0;
+
+  // 并发 2 而不是 8：沙箱是小机器，8 个 2MB 请求并发会把事件循环和网络打满，
+  // 连探活都排不上队（这是第一版部署失败的直接原因）。
+  const worker = async () => {
+    for (;;) {
+      const i = next; next += 1;
+      if (i >= pages) return;
+      const { data, error } = await cloud.database
+        .from('kv_store').select('key, value').like('key', 'project-%')
+        .order('updated_at', { ascending: false })   // 最近改过的项目先落地
+        .range(i * pageSize, i * pageSize + pageSize - 1);
+      if (error) throw new Error(error.message ?? '读取云数据库失败');
+      const rows = (data ?? []).filter((r) => r?.key && !NEVER_SYNC.test(r.key) && !seen.has(r.key));
+      for (const r of rows) seen.add(r.key);
+      if (rows.length) total += onPage(rows);
+      if ((data ?? []).length < pageSize) { /* 本页不满，后面更空，但并行下不早退 */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, pages) }, worker));
   return { rows: total };
 }
 
@@ -110,6 +120,17 @@ export async function pushAll(entries) {
   const { error } = await cloud.database.from('kv_store').upsert(rows, { onConflict: 'key' });
   if (error) throw new Error(error.message ?? '批量写入云数据库失败');
   return { pushed: rows.length };
+}
+
+/**
+ * 回灌闸门：列表类接口在回灌没完成时**最多等 3 秒**。
+ * 目的：端口先开（平台探活必须马上通），但第一个打开页面的人不至于看到空列表。
+ */
+let gate = null;
+export function setHydrateGate(promise) { gate = promise; }
+export async function waitHydrate(ms = 3000) {
+  if (!gate) return;
+  await Promise.race([gate.catch(() => {}), new Promise((r) => setTimeout(r, ms))]);
 }
 
 /**

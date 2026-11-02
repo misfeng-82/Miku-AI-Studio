@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { createApp, listen } from './app.js';
 import { store } from './repo/jsonStore.js';
-import { syncEnabled, pullLight, streamHeavy, pushAll, setSuppress } from './cloud/storeSync.js';
+import { syncEnabled, pullLight, streamHeavy, pushAll, setSuppress, setHydrateGate } from './cloud/storeSync.js';
 
 /**
  * 启动前把云端数据回灌到本地。
@@ -62,8 +62,15 @@ async function hydrateFromCloud() {
   }
 }
 
-await hydrateFromCloud();
 const server = await listen(createApp());
+
+/**
+ * 注意顺序：**先监听，再回灌**。
+ * 早先是「回灌完再 listen」，结果平台探活 60 秒内等不到端口，直接判定启动失败。
+ * 现在端口先开，数据在后台补——页面上刷新一下就能看到。
+ */
+const hydration = hydrateFromCloud().catch((e) => logger.warn('cloud.db.hydrate.fail', { reason: String(e.message).slice(0, 120) }));
+setHydrateGate(hydration);
 
 // 重量数据（project-*）后台拉，拉到一条写一条：不挡启动，几秒后项目就自己出现了
 if (syncEnabled()) {
