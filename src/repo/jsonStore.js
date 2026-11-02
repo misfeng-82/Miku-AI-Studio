@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { config } from '../config.js';
 import { internalError, notFound } from '../errors.js';
 import { logger } from '../logger.js';
+import { queuePush, queueRemove } from '../cloud/storeSync.js';
 
 // 极简 JSON 文档存储：零依赖、单文件一文档、写临时文件后原子重命名
 // 说明：适合单机单人使用的规模；并发写以进程内串行队列保证不互相覆盖
@@ -40,6 +41,8 @@ export class JsonStore {
     try {
       writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
       renameSync(tmp, p);
+      // 先落本地（同步、绝不失败），再异步推云端（失败只记日志，不影响本次请求）
+      try { queuePush(name, value); } catch { /* 同步层自身出错不能拖垮存储 */ }
       return value;
     } catch (err) {
       throw internalError(`写入数据 ${name} 失败`, { reason: err.message });
@@ -77,6 +80,7 @@ export class JsonStore {
     const p = this.pathOf(name);
     if (!existsSync(p)) return false;
     unlinkSync(p);
+    try { queueRemove(name); } catch { /* 同上 */ }
     return true;
   }
 }
