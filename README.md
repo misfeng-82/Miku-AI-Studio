@@ -69,7 +69,9 @@ node src/server.js      # 打开 http://127.0.0.1:8787
   本机可用 `data/cloud.json` 覆盖（该文件 gitignore，不会上传）
 - 调用走官方 SDK `@tencent-ai/workbuddy-cloud-sdk`（零第三方依赖），只支持流式，代码里按 chunk 收全文
 - 模型默认 `glm-5.3-flash`：实测 `auto` 对长输出会卡到空内容超时，具体模型 1.5–2 秒返回
-- 来源优先级：网页里显式填的 Key > 云服务 > `.env` > 本地样本；`USE_MOCK=1` 时走样本（测试不花钱、不断网）
+- **默认不允许匿名访客借用发布者的云额度**（`allowCloudLlm: false`）：访客不填 Key 就明确报错并提示去填，
+  不会有人偷偷花你的额度；要开放给公众用，需在配置里显式 `allowCloudLlm: true`
+- 来源优先级：访客请求头自带的 Key > 服务器运行时配置 > 云服务（默认关）> `.env` > 本地样本；`USE_MOCK=1` 时走样本
 
 ```bash
 # 本地验证云端链路（空数据目录模拟「没填 Key」）
@@ -110,9 +112,13 @@ NODE_ENV=production PORT=8080 node src/server.js
 
 ## 接模型
 
-已开通云服务时**默认走免密钥通道**，不填也能生成；下面这套 Key 配置用于换成自己的模型（填了就优先生效）。
+**Key 存在你自己的浏览器里**（localStorage），随请求头 `x-llm-*` 发给服务，用完即弃：
+不落盘、不写日志、不上传别处。公开站点上每个人的 Key 互不可见，也不会有人替你花额度。
 
-顶栏「接 API」里填，配置只存本机 `data/settings.json`（不进 git、不回显原文）。
+> 以前的版本把 Key 存服务器 `data/settings.json`——公共部署时这等于「所有访客共用一把 Key」。
+> 现在改成了 BYOK（bring your own key）：**谁用谁填，谁填谁花钱**。
+
+顶栏「接 API」里填。解析优先级：**访客请求头自带的 Key > 服务器运行时配置 > 云服务（默认关）> `.env` > 本地样本**。
 
 - 预设里已带 **DeepSeek V4.1 Flash**（`deepseek-flash` · 1M 上下文 · 支持图像）和 **DeepSeek V4 Pro**（`deepseek-v4-pro`）；老的 `deepseek-chat` 已被官方下线，打开弹窗会自动纠正过去
 - **推理等级**：`不指定`（服务端默认，DeepSeek 为 High）/ `Low` / `High` / `Max` / `关闭思考`。只有选了具体档位才会发 `reasoning_effort` + `thinking`，不认识这两个字段的网关请保持「不指定」
