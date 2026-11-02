@@ -76,7 +76,7 @@
     <div class="modal-body">
       <div class="notice notice-info" style="margin-bottom:16px">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3l9 16H3zM12 10v4M12 17h.01"/></svg>
-        <div>Key 只存本机 <span class="mono">data/settings.json</span>，不进浏览器、不上传。接入后<b>规则改写</b>走模型；评估、优化、拆镜始终本地（剧本生成 / 续写已下线）。</div>
+        <div>Key 只存在<b>你自己的浏览器</b>（localStorage），随请求头发给你正在用的这个服务，用完即弃、<b>不落盘、不上传别处</b>。所以：别人打开同一个网站要用，得填他自己的 Key——不会花发布者的额度。</div>
       </div>
       <label class="field"><span class="fl">服务商预设</span>
         <select class="editable" id="amPreset"></select></label>

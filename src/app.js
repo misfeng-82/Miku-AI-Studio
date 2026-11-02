@@ -8,6 +8,7 @@ import {
 import { accessGate, handleAuth } from './http/auth.js';
 import { withRateLimit } from './http/ratelimit.js';
 import { api } from './routes/api.js';
+import { runWithLlm, llmFromHeaders } from './agent/llmContext.js';
 import { notFound } from './errors.js';
 
 const router = api;
@@ -62,6 +63,11 @@ export function createApp() {
       }
 
       if (url.pathname.startsWith('/api/')) {
+        // 访客自带 Key：从请求头取出，挂到本次异步上下文（不落盘、不记日志）。
+        // 服务层深处调模型时自动读到，不需要把 req 一层层往下传。
+        const llmOverride = llmFromHeaders(req.headers);
+        if (llmOverride) req.llm = { source: 'request', model: llmOverride.model || '(默认)' };
+        return await runWithLlm(llmOverride, async () => {
         req.body = await readJsonBody(req);
         const { handler, params, allowed } = router.match(req.method, url.pathname);
         if (!handler) {
@@ -75,6 +81,7 @@ export function createApp() {
         const result = await handler(req, res);
         if (result !== undefined && !res.writableEnded) sendJson(res, 200, result);
         return;
+        });
       }
 
       const served = await serveStatic(req, res, url.pathname);

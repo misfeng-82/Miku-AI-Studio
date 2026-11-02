@@ -1351,6 +1351,32 @@ tAsync('云服务：默认配置形状合法（endpoint / publishableKey / 模�
   assert.equal(cloudEnabled(), true);
 });
 
+
+/* ---- 访客自带 Key（BYOK）：优先级与额度隔离）---- */
+tAsync('BYOK：请求头三个全才生效，缺一个就不算', async () => {
+  const { llmFromHeaders } = await import('../src/agent/llmContext.js');
+  assert.equal(llmFromHeaders({}), null);
+  assert.equal(llmFromHeaders({ 'x-llm-key': 'k' }), null, '只有 Key 没有 base 不算');
+  assert.equal(llmFromHeaders({ 'x-llm-base': 'https://x' }), null, '只有 base 没有 Key 不算');
+  const full = llmFromHeaders({ 'x-llm-key': 'k', 'x-llm-base': 'https://x', 'x-llm-model': 'm' });
+  assert.equal(full.apiKey, 'k');
+  assert.equal(full.model, 'm');
+});
+
+tAsync('BYOK：默认不允许匿名访客花发布者的云额度', async () => {
+  const { allowCloudLlm } = await import('../src/cloud/client.js');
+  // 默认配置里没有 allowCloudLlm → 必须是 false
+  assert.equal(allowCloudLlm(), false, '默认必须关闭，否则谁点生成都花发布者的额度');
+});
+
+t('BYOK：请求级 Key 的优先级排在云服务之前', () => {
+  const src = readFileSync('src/agent/llm.js', 'utf8');
+  const iReq = src.indexOf("source: 'request'");
+  const iCloud = src.indexOf("source: 'cloud'");
+  assert.ok(iReq > 0 && iCloud > 0, '两处判断都要在');
+  assert.ok(iReq < iCloud, '访客自带的 Key 必须优先于云服务');
+});
+
 for (const [name, fn] of asyncTests) {
   try {
     await fn();

@@ -42,6 +42,19 @@ export function cloudEnabled() {
   return publicConfig() !== null;
 }
 
+/**
+ * 是否允许「匿名访客」用创建者的云服务额度生成。
+ *
+ * 默认 **false**：公共站点上谁点生成谁花发布者的额度，这对发布者不公平，
+ * 所以只在你明确打开时才用（本机调试可以开）。访客要生成，请自己填 Key——
+ * Key 存在他自己浏览器的 localStorage 里，随请求头带过来，服务端不落地。
+ */
+export function allowCloudLlm() {
+  const cfg = publicConfig();
+  if (!cfg) return false;
+  return cfg.allowCloudLlm === true;
+}
+
 /** 拿一个客户端实例；没配返回 null */
 export function cloudClient() {
   const cfg = publicConfig();

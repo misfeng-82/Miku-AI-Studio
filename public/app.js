@@ -270,7 +270,11 @@ async function openApiModal() {
   $('#amTestResult').textContent = '';
   try {
     const d = await api.settings();
-    const s = d.settings ?? {};
+    const local = api.getLocalLlm();
+    // 浏览器里存过就以浏览器为准（公共站点上这是唯一合法的来源）
+    const s = local
+      ? { ...(d.settings ?? {}), ...local, hasKey: true }
+      : (d.settings ?? {});
     Object.assign(apiDraft, {
       preset: s.preset ?? 'openai', baseUrl: s.baseUrl ?? '', model: s.model ?? '',
       apiKey: s.hasKey ? s.apiKey : '', reasoning: s.reasoning ?? 'auto',
@@ -315,15 +319,19 @@ function collectApiForm() {
 
 async function saveApiSettings() {
   const body = collectApiForm();
-  if (body.enabled && !body.apiKey) return toast('启用前要先填 API Key', 'warn');
-  if (body.enabled && !body.baseUrl) return toast('启用前要先填 Base URL', 'warn');
-  try {
-    const r = await api.saveSettings(body);
-    state.meta = await api.meta();
-    render();
-    $('#apiModal').hidden = true;
-    toast(r.message ?? '已保存');
-  } catch (e) { toast(e.message, 'err'); }
+  if (!body.apiKey) return toast('先填 API Key', 'warn');
+  if (!body.baseUrl) return toast('先填 Base URL', 'warn');
+
+  // 存到**你自己的浏览器**，不上传服务器：公共站上每个人的 Key 互不可见，
+  // 也不会有人替你花额度。请求时才随请求头带过去，服务端用完即弃。
+  api.setLocalLlm({
+    baseUrl: body.baseUrl, model: body.model, apiKey: body.apiKey,
+    reasoning: body.reasoning, temperature: body.temperature, maxTokens: body.maxTokens,
+  });
+  try { state.meta = await api.meta(); } catch { /* 元信息拉不到不影响保存 */ }
+  render();
+  $('#apiModal').hidden = true;
+  toast('已保存到你自己的浏览器（不会上传，也不会占用别人的额度）');
 }
 
 async function pullModels() {
@@ -365,6 +373,7 @@ $('#amTest').addEventListener('click', testApiSettings);
 $('#amClear').addEventListener('click', async () => {
   if (!armConfirm(btn, '确认抹除配置？')) return;
   try {
+    api.setLocalLlm(null);
     const r = await api.clearSettings();
     $('#amKey').value = '';
     $('#amBase').value = '';

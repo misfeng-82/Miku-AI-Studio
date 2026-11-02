@@ -11,12 +11,44 @@ const MESSAGES = {
   INTERNAL: '服务器出了点问题',
 };
 
+/**
+ * 浏览器持有的模型配置（localStorage）。
+ * 为什么放浏览器：公共站点上如果把 Key 存到服务器，所有访客会共用同一把 Key、
+ * 还可能互相看到（掩码）。放这里 → 谁的浏览器谁的 Key，随请求头带过去，
+ * 服务端只在本请求内使用，不落盘、不记日志、不回显。
+ */
+const LLM_STORE = 'miku.llm';
+
+export function getLocalLlm() {
+  try { return JSON.parse(localStorage.getItem(LLM_STORE) || 'null') || null; } catch { return null; }
+}
+
+export function setLocalLlm(cfg) {
+  try {
+    if (cfg && cfg.apiKey) localStorage.setItem(LLM_STORE, JSON.stringify(cfg));
+    else localStorage.removeItem(LLM_STORE);
+  } catch { /* 隐私模式禁用存储时静默降级：这次会话内仍可用 */ }
+}
+
+function llmHeaders() {
+  const c = getLocalLlm();
+  if (!c?.apiKey || !c?.baseUrl) return {};
+  return {
+    'x-llm-key': c.apiKey,
+    'x-llm-base': c.baseUrl,
+    'x-llm-model': c.model || '',
+    'x-llm-reasoning': c.reasoning || 'auto',
+    'x-llm-temperature': String(c.temperature ?? 0.85),
+    'x-llm-maxtokens': String(c.maxTokens ?? 8000),
+  };
+}
+
 async function request(method, path, body, attempt = 1) {
   let res;
   try {
     res = await fetch(path, {
       method,
-      headers: body ? { 'content-type': 'application/json' } : undefined,
+      headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...llmHeaders() },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -46,6 +78,9 @@ async function request(method, path, body, attempt = 1) {
 }
 
 export const api = {
+  // 浏览器持有的模型配置（供弹窗读写；不进服务器）
+  getLocalLlm: () => getLocalLlm(),
+  setLocalLlm: (cfg) => setLocalLlm(cfg),
   get: (p) => request('GET', p),
   post: (p, b) => request('POST', p, b),
   del: (p) => request('DELETE', p),
