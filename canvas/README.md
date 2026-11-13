@@ -6,11 +6,14 @@
 ## 启动
 
 ```bash
-cd infinite-canvas
+cd canvas
 npm install          # express + dotenv
 cp .env.example .env # 填 AUTODL_TOKEN
 npm start            # → http://127.0.0.1:5180
 ```
+
+> 从主工程进「无限画布」时**不需要单独起它**：主服务启动时会自动拉起子服务，并把 `/canvas/*` 代理过去。
+> 上面这段是单独调试画布时用的。目录名是 `canvas/`，不是 `infinite-canvas/`。
 
 ## 生成能力从哪来：两条路，两把令牌
 
@@ -83,7 +86,7 @@ AutoDL 的令牌分两种分组，**用错了接口直接 403**：
 ## 目录结构
 
 ```
-infinite-canvas/
+canvas/
 ├── server.js               Express + 生成接口（提交 / 查询 / 等待 / 状态探测）
 ├── .env / .env.example     AUTODL_TOKEN、工作流 ID、默认参数
 ├── package.json

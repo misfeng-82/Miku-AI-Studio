@@ -47,6 +47,19 @@
 
 ---
 
+## 运行时依赖（npm 包）
+
+主工程**没有第三方 npm 依赖**：除官方云服务 SDK `@tencent-ai/workbuddy-cloud-sdk` 外，全部走 Node 标准库 + 原生 ES Module。
+
+无限画布子服务（`canvas/`）是独立工程，有自己的两个依赖，需在该目录下 `npm install`（不装则画布不可用，主工程不受影响）：
+
+| 包 | 许可证 | 用途 |
+| --- | --- | --- |
+| [`express`](https://github.com/expressjs/express) | MIT | 画布子服务的 HTTP 服务与静态资源 |
+| [`dotenv`](https://github.com/motdotla/dotenv) | BSD-2-Clause | 读取 `canvas/.env` 中的 AutoDL 令牌与工作流 ID |
+
+---
+
 ## 数据与商标
 
 `src/assets/hotDramas.js`、`data/hot-dramas.json` 中的剧目名称、集数、海报 URL、播放页链接，
