@@ -25,8 +25,11 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-# ProtectSystem=strict 会把整个文件系统挂成只读，只放开数据目录
-ReadWritePaths=/var/lib/miku
+# ProtectSystem=strict 会把整个文件系统挂成只读，只放开两处可写：
+#   /var/lib/miku      主工程的作品数据（DATA_DIR）
+#   /opt/miku/canvas/data  画布子进程的 uploads / output / config.json
+# 少了后一条，画布一启动就会因为 mkdirSync 失败而反复退出重启
+ReadWritePaths=/var/lib/miku /opt/miku/canvas/data
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

@@ -123,8 +123,9 @@ sudo bash /opt/miku/deploy/oracle/setup.sh        # 不带 --repo，复用已有
 装 Node 22（官方 tarball，自动识别 x86_64 / aarch64）
   → 建系统用户 miku / caddy
   → 拉代码到 /opt/miku
+  → 装依赖：主工程 npm ci + 画布子服务 npm install（缺后者画布必坏）
   → 生成 /etc/miku/miku.env（含随机 32 位 ACCESS_TOKEN，权限 600）
-  → 装 systemd 服务 miku.service（加固：ProtectSystem=strict，只放开数据目录）
+  → 装 systemd 服务 miku.service（加固：ProtectSystem=strict，放开两个可写目录）
   → 装 Caddy，写 /etc/caddy/Caddyfile（自动 HTTPS，反代 127.0.0.1:8787）
   → 放行本机防火墙 80/443
   → 装两个定时器：每日备份、每小时保活
@@ -135,7 +136,8 @@ sudo bash /opt/miku/deploy/oracle/setup.sh        # 不带 --repo，复用已有
 | 决定                                 | 为什么                                 |
 | ---------------------------------- | ----------------------------------- |
 | 数据在 `/var/lib/miku/data`，不在代码目录    | `git pull` 更新代码不会覆盖作品               |
-| 应用只听 `127.0.0.1:8787`              | 外网只能经 Caddy 进，应用端口不直接暴露             |
+| 画布的写权限单独放开 `/opt/miku/canvas/data` | 画布把 uploads / output / config.json 写在代码目录旁；`ProtectSystem=strict` 不放开这一处，子进程一启动就 `EROFS`，主服务每 2 秒重启它一次 |
+| 应用只听 `127.0.0.1:8787`              | 外网只能经 Caddy 进，应用端口不直接暴露；画布 5180 也只听本机，走主服务的 `/canvas` 代理 |
 | 用 systemd `EnvironmentFile` 注入环境变量 | **本项目零依赖、不会自动读 `.env`**，靠文件放同目录是无效的 |
 | Node 走官方 tarball                   | 不引 NodeSource/copr 等第三方源，ARM 也能用    |
 | Caddy 静态二进制                        | 各发行版仓库里的 Caddy 版本很旧，静态包跨发行版一致       |
@@ -146,7 +148,13 @@ sudo bash /opt/miku/deploy/oracle/setup.sh        # 不带 --repo，复用已有
 
 ```bash
 # 更新代码并重启
-cd /opt/miku && sudo git pull && sudo systemctl restart miku
+# root 直接 pull 会被 git 判 dubious ownership（代码属主是 miku），要带 safe.directory
+sudo git -C /opt/miku -c safe.directory=/opt/miku pull --ff-only
+sudo chown -R miku:miku /opt/miku
+# package.json / lock 没变时这两步可以跳过；变了必须重装，否则画布会缺 express
+sudo -u miku /usr/local/bin/npm --prefix /opt/miku ci --omit=dev
+sudo -u miku /usr/local/bin/npm --prefix /opt/miku/canvas ci --omit=dev
+sudo systemctl restart miku
 
 # 改访问口令（改完旧 cookie 立刻失效，所有人要重新登录）
 sudo sed -i "s|^ACCESS_TOKEN=.*|ACCESS_TOKEN=新的口令|" /etc/miku/miku.env
@@ -217,6 +225,7 @@ journalctl -u caddy -n 50 --no-pager | grep -iE "error|acme|challenge"
 ## 9. 这份部署件**没有**验证过什么（诚实说明）
 
 - 脚本只在本机做了 `bash -n` 语法检查，**没有在真实 Oracle 实例上跑过**（我没有你的云账号，也不该替你开机器）
+- 2026-11-13 补的画布部分（依赖安装、`canvas/data` 写权限、5180 就绪检查）同样只做了语法检查，没在真机验证；第一次跑请先看 `journalctl -u miku | grep -i canvas`
 - Node/Caddy 的下载地址依赖官方 CDN 可达性；如果实例出网受限，需要换镜像源
 - 没有验证过 ARM（aarch64）分支的实际执行（架构判断逻辑是按官方命名写的）
 - Oracle 的免费政策与空闲回收判定会变，以官方文档为准

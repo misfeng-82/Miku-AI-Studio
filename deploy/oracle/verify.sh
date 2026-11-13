@@ -25,6 +25,19 @@ echo "=== 2. 本机健康检查 ==="
 CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${APP_PORT}/health" || echo 000)"
 if [[ "$CODE" == "200" ]]; then ok "/health → 200"; else bad "/health → ${CODE}（应用没起来）"; fi
 
+echo "=== 2b. 画布子服务 ==="
+CANVAS_PORT="${CANVAS_PORT:-5180}"
+CANVAS_DATA="${CANVAS_DATA:-/opt/miku/canvas/data}"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${CANVAS_PORT}/" || echo 000)"
+if [[ "$CODE" == "200" ]]; then ok "画布端口 ${CANVAS_PORT} → 200"; else bad "画布端口 ${CANVAS_PORT} → ${CODE}（装没装依赖？journalctl -u miku | grep -i canvas）"; fi
+CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${APP_PORT}/canvas" || echo 000)"
+if [[ "$CODE" == "200" || "$CODE" == "401" ]]; then ok "/canvas 经主服务代理 → ${CODE}"; else bad "/canvas 代理 → ${CODE}（预期 200 或 401）"; fi
+if [[ -d "$CANVAS_DATA" ]]; then
+  if sudo -u miku test -w "$CANVAS_DATA" 2>/dev/null; then ok "画布数据目录可写"; else bad "画布数据目录不可写（chown -R miku:miku $CANVAS_DATA）"; fi
+else
+  bad "不存在：$CANVAS_DATA（setup.sh 会建；没建说明部署件是旧版）"
+fi
+
 echo "=== 3. 访问口令是否生效（这条最重要）==="
 CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${APP_PORT}/api/meta" || echo 000)"
 if [[ "$CODE" == "401" ]]; then

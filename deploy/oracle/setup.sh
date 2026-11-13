@@ -118,9 +118,27 @@ if [[ -n "$REPO" ]]; then
   fi
 fi
 [[ -f "${APP_DIR}/src/server.js" ]] || die "代码不完整：没找到 ${APP_DIR}/src/server.js"
+
+# ── 依赖（这一步以前漏了，不装起不来）─────────────────────
+# 主工程有 1 个官方云 SDK；画布子服务是独立 package.json（express + dotenv）
+log "安装主工程依赖"
+( cd "$APP_DIR" && if [[ -f package-lock.json ]]; then npm ci --omit=dev; else npm install --omit=dev; fi ) \
+  || die "主工程依赖安装失败（检查出网 / npm 源）"
+if [[ -f "${APP_DIR}/canvas/package.json" ]]; then
+  log "安装画布子服务依赖"
+  ( cd "${APP_DIR}/canvas" && if [[ -f package-lock.json ]]; then npm ci --omit=dev; else npm install --omit=dev; fi ) \
+    || die "画布依赖安装失败（画布页会显示「画布服务未启动」）"
+fi
+
+# 画布自己的数据目录（uploads / output / config.json 都写在这里）
+mkdir -p "${APP_DIR}/canvas/data"
+
 chown -R "${APP_USER}:${APP_USER}" "$APP_DIR" "$DATA_DIR" "$BACKUP_DIR"
 chown -R caddy:caddy /var/lib/caddy /var/log/caddy
 chmod +x "${APP_DIR}/deploy/oracle/"*.sh 2>/dev/null || true
+
+# root 操作 miku 用户的仓库会被 git 判成 dubious ownership，提前登记
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 
 # ── 环境文件（口令只生成一次）──────────────────────────────
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -169,6 +187,17 @@ done
 curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null \
   || die "应用没起来，看日志：journalctl -u miku -n 50 --no-pager"
 log "应用已在本机 ${APP_PORT} 端口就绪"
+
+# 画布是主服务 fork 出来的子进程，等它也起来（起不来不致命，只提示）
+for i in $(seq 1 15); do
+  curl -fsS "http://127.0.0.1:5180/" >/dev/null 2>&1 && break
+  sleep 1
+done
+if curl -fsS "http://127.0.0.1:5180/" >/dev/null 2>&1; then
+  log "画布子服务已在 5180 端口就绪"
+else
+  warn "画布还没起来：看 journalctl -u miku | grep -i canvas（多为依赖没装或 canvas/data 不可写）"
+fi
 
 # ── Caddy（自动 HTTPS）─────────────────────────────────────
 if ! /usr/local/bin/caddy version >/dev/null 2>&1; then
