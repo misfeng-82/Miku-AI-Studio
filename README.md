@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/misfeng-82/Miku-AI-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/misfeng-82/Miku-AI-Studio/actions/workflows/ci.yml)
 
+> **在线体验**：<https://wbapp-kozflhgxbxm2xsvztuyeg4.app.workbuddy.host/?sharecode=43BPEDJBEL>
+>
+> WorkBuddy 托管的新版演示站（含无限画布）。模型需自备 API Key：Key 只存在你自己的浏览器，用完即弃。
+
 浅色暖纸工作台，**22 个功能入口**，跑在一个网页里。核心创作链路是 Node 标准库 + 原生 ES Module；在此基础上另接了 8 个扩展依赖（文档导出 / 图片处理 / 本地索引 / 定时任务 / 模型 SDK 通道，清单见「扩展能力与依赖」一节），克隆后 `npm ci` 即可跑；**无限画布是独立子服务**（`canvas/`，Express + dotenv），首次要进目录单独 `npm install`。
 
 ## 运行前提：必须接入模型
