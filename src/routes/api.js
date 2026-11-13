@@ -1,4 +1,4 @@
-import { Router, sendJson } from '../http/router.js';
+import { Router, sendJson, sendBinary } from '../http/router.js';
 import { logger } from '../logger.js';
 import * as projects from '../repo/projectRepo.js';
 import { requireString, requireInt, requireEnum, requireArray, optionalString, conflict, badRequest } from '../errors.js';
@@ -32,6 +32,11 @@ import { normalizeSettings, maskSettings, PRESETS, chatComplete } from '../agent
 import * as llmClient from '../agent/llmClient.js';
 import * as llmUsageRepo from '../repo/llmUsageRepo.js';
 import { status as llmModeStatus } from '../agent/llm.js';
+import * as exportService from '../services/exportService.js';
+import * as imageService from '../services/imageService.js';
+import * as indexDb from '../repo/indexDb.js';
+import * as schedulerService from '../services/schedulerService.js';
+import * as indexService from '../services/indexService.js';
 
 export const api = new Router();
 
@@ -686,3 +691,230 @@ async function resolveScript(b) {
   if (!script || !Array.isArray(script.episodes)) throw badRequest('缺少 script.episodes，或未提供 projectId');
   return { script, outline: b.outline ?? null };
 }
+
+/* =====================================================================
+ * 扩展能力：文档导出 / 批量打包 / 图片处理 / SQLite 索引 / 定时任务 / SDK 通道
+ * 全部为新增端点，不改动既有业务链路；出参要么是 JSON 摘要，要么是二进制下载。
+ * ===================================================================== */
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+function safeFilename(s) {
+  return String(s || '未命名').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 80) || '未命名';
+}
+
+/** 从 exportBook 的 filename 反推书名（去掉日期与 .md 后缀）。 */
+function titleFromExportFilename(filename) {
+  return String(filename || '').replace(/-\d{4}-\d{2}-\d{2}\.md$/i, '').trim() || '未命名';
+}
+
+/** 把项目里的剧本转成 markdown，供 docx/pdf/zip 共用。 */
+function projectToMarkdown(id) {
+  const p = projects.getProject(id);
+  const script = p.stages?.script?.data;
+  if (!script) throw conflict('这个项目还没有剧本：先在「剧本创作 → 格式转换」载入一份');
+  const outline = p.stages?.outline?.data ?? null;
+  const md = scriptService.toMarkdown(script, outline);
+  return { project: p, markdown: String(md ?? '') };
+}
+
+/* ---------------- 1. 文档导出：小说 Word / PDF ---------------- */
+
+api.get('/api/novels/:id/export/docx', async (req, res) => {
+  const book = studio.exportBook(req.params.id);
+  const title = titleFromExportFilename(book.filename);
+  const buffer = await exportService.markdownToDocx({
+    title, markdown: book.text, subtitle: `${book.chapters} 章 · 约 ${book.words} 字`,
+  });
+  const filename = `${safeFilename(title)}-${today()}.docx`;
+  indexDb.recordExport({ kind: 'novel-docx', target: req.params.id, filename, bytes: buffer.length });
+  sendBinary(res, 200, buffer, {
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', filename,
+  });
+});
+
+api.get('/api/novels/:id/export/pdf', async (req, res) => {
+  const book = studio.exportBook(req.params.id);
+  const title = titleFromExportFilename(book.filename);
+  const { buffer, fontEmbedded } = await exportService.markdownToPdf({
+    title, markdown: book.text, subtitle: `${book.chapters} 章 · 约 ${book.words} 字`,
+  });
+  const filename = `${safeFilename(title)}-${today()}.pdf`;
+  indexDb.recordExport({ kind: 'novel-pdf', target: req.params.id, filename, bytes: buffer.length });
+  res.setHeader('x-font-embedded', fontEmbedded ? '1' : '0');
+  sendBinary(res, 200, buffer, { contentType: 'application/pdf', filename });
+});
+
+/* ---------------- 2. 文档导出：项目剧本 Word / PDF / ZIP ---------------- */
+
+api.get('/api/projects/:id/export/docx', async (req, res) => {
+  const { project, markdown } = projectToMarkdown(req.params.id);
+  const buffer = await exportService.markdownToDocx({
+    title: project.name, markdown, subtitle: `${project.genre || '剧本'} · ${project.episodes || ''} 集`,
+  });
+  const filename = `${safeFilename(project.name)}-${today()}.docx`;
+  indexDb.recordExport({ kind: 'project-docx', target: req.params.id, filename, bytes: buffer.length });
+  sendBinary(res, 200, buffer, {
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', filename,
+  });
+});
+
+api.get('/api/projects/:id/export/pdf', async (req, res) => {
+  const { project, markdown } = projectToMarkdown(req.params.id);
+  const { buffer, fontEmbedded } = await exportService.markdownToPdf({
+    title: project.name, markdown, subtitle: `${project.genre || '剧本'} · ${project.episodes || ''} 集`,
+  });
+  const filename = `${safeFilename(project.name)}-${today()}.pdf`;
+  indexDb.recordExport({ kind: 'project-pdf', target: req.params.id, filename, bytes: buffer.length });
+  res.setHeader('x-font-embedded', fontEmbedded ? '1' : '0');
+  sendBinary(res, 200, buffer, { contentType: 'application/pdf', filename });
+});
+
+/** 项目打包：剧本 md/docx/pdf + 大纲与各阶段原始 JSON，一并塞进 zip。 */
+api.get('/api/projects/:id/export/zip', async (req, res) => {
+  const { project, markdown } = projectToMarkdown(req.params.id);
+  const base = safeFilename(project.name);
+  const files = [
+    { name: `${base}/剧本.md`, content: markdown },
+    { name: `${base}/剧本.docx`, content: await exportService.markdownToDocx({ title: project.name, markdown }) },
+    { name: `${base}/项目.json`, content: JSON.stringify(project, null, 2) },
+  ];
+  const outline = project.stages?.outline?.data;
+  if (outline) files.push({ name: `${base}/大纲.json`, content: JSON.stringify(outline, null, 2) });
+  const evaluate = project.stages?.evaluate?.data;
+  if (evaluate) files.push({ name: `${base}/评估.json`, content: JSON.stringify(evaluate, null, 2) });
+  const zip = await exportService.buildZip(files, { comment: `Miku 项目导出：${project.name} @ ${new Date().toISOString()}` });
+  const filename = `${base}-${today()}.zip`;
+  indexDb.recordExport({ kind: 'project-zip', target: req.params.id, filename, bytes: zip.length });
+  sendBinary(res, 200, zip, { contentType: 'application/zip', filename });
+});
+
+/* ---------------- 3. 全库备份打包 ---------------- */
+
+api.get('/api/export/backup.zip', async (req, res) => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const dataDir = join(process.cwd(), 'data');
+  const files = [];
+  for (const name of readdirSync(dataDir)) {
+    if (!/^(project|novel)-[\w-]+\.json$/.test(name)) continue;
+    files.push({ name: `data/${name}`, content: readFileSync(join(dataDir, name)) });
+  }
+  const novels = studio.listBooks();
+  const index = await projects.listProjects();
+  files.push({
+    name: '索引摘要.json',
+    content: JSON.stringify({ generatedAt: new Date().toISOString(), projects: index, novels }, null, 2),
+  });
+  const zip = await exportService.buildZip(files, { comment: 'Miku AI 创作平台 · 全库备份' });
+  const filename = `miku-backup-${today()}.zip`;
+  indexDb.recordExport({ kind: 'backup', target: 'all', filename, bytes: zip.length });
+  sendBinary(res, 200, zip, { contentType: 'application/zip', filename });
+});
+
+/* ---------------- 4. 图片处理（sharp） ---------------- */
+
+api.get('/api/images/list', (req, res) => {
+  sendJson(res, 200, imageService.listImages({
+    limit: requireInt(req.query.limit ?? 60, 'limit', { min: 1, max: 200 }),
+    dir: req.query.dir ?? 'canvas/data',
+  }));
+});
+
+api.get('/api/images/info', async (req, res) => {
+  if (!req.query.path) throw badRequest('缺少 path');
+  sendJson(res, 200, await imageService.info(req.query.path));
+});
+
+/** 统一图片操作入口：op=thumb|cover|watermark|compress，直接返回图片二进制。 */
+api.get('/api/images/op', async (req, res) => {
+  const path = req.query.path;
+  if (!path) throw badRequest('缺少 path');
+  const op = req.query.op ?? 'thumb';
+  const format = req.query.format;
+  let out;
+  let filename;
+  const stem = String(path).split(/[\\/]/).pop().replace(/\.[^.]+$/, '') || 'image';
+
+  if (op === 'thumb') {
+    out = await imageService.thumbnail(path, { width: req.query.width ?? 320, format: format ?? 'webp', quality: req.query.quality ?? 82 });
+    filename = `${stem}-thumb.${format === 'png' ? 'png' : 'webp'}`;
+  } else if (op === 'cover') {
+    out = await imageService.coverCrop(path, { width: req.query.width ?? 816, height: req.query.height ?? 1086, format: format ?? 'jpg', quality: req.query.quality ?? 88 });
+    filename = `${stem}-cover.${format === 'png' ? 'png' : 'jpg'}`;
+  } else if (op === 'watermark') {
+    out = await imageService.watermarkText(path, { text: req.query.text ?? 'Miku AI', opacity: req.query.opacity ?? 0.55, format: format ?? 'png' });
+    filename = `${stem}-wm.${format === 'jpg' ? 'jpg' : 'png'}`;
+  } else if (op === 'compress') {
+    out = await imageService.compress(path, { maxWidth: req.query.width ?? 1920, quality: req.query.quality ?? 78 });
+    indexDb.recordExport({ kind: 'image-compress', target: path, filename: `${stem}-c`, bytes: out.after });
+    sendJson(res, 200, { before: out.before, after: out.after, savedPercent: out.savedPercent });
+    return;
+  } else {
+    throw badRequest(`未知 op：${op}（可用 thumb / cover / watermark / compress）`);
+  }
+  sendBinary(res, 200, out.buffer, { contentType: out.contentType, filename, inline: true });
+});
+
+/* ---------------- 5. SQLite 索引与统计 ---------------- */
+
+api.get('/api/index/stats', (req, res) => sendJson(res, 200, indexDb.stats()));
+
+api.post('/api/index/sync', async (req, res) => {
+  await waitHydrate();
+  sendJson(res, 200, await indexService.syncNow());
+});
+
+api.get('/api/index/exports', (req, res) => sendJson(res, 200, {
+  items: indexDb.listExports({ limit: req.query.limit ?? 20 }),
+}));
+
+/* ---------------- 6. 定时任务 ---------------- */
+
+api.get('/api/scheduler', (req, res) => sendJson(res, 200, schedulerService.list()));
+
+api.post('/api/scheduler/:id/run', async (req, res) => {
+  sendJson(res, 200, await schedulerService.execute(req.params.id, 'manual'));
+});
+
+api.post('/api/scheduler/:id/stop', (req, res) => {
+  const ok = schedulerService.stop(req.params.id);
+  sendJson(res, ok ? 200 : 404, { ok, id: req.params.id });
+});
+
+api.post('/api/scheduler/:id/start', (req, res) => {
+  const ok = schedulerService.startOne(req.params.id);
+  sendJson(res, ok ? 200 : 404, { ok, id: req.params.id });
+});
+
+/* ---------------- 7. openai SDK 通道（可选传输层） ---------------- */
+
+api.get('/api/llm/sdk/status', async (req, res) => {
+  const saved = normalizeSettings(settingsRepo.getSettings() ?? {});
+  let sdkAvailable = false;
+  let sdkError = '';
+  try {
+    const { loadSdk } = await import('../agent/openaiTransport.js');
+    await loadSdk();
+    sdkAvailable = true;
+  } catch (e) {
+    sdkError = e.message;
+  }
+  sendJson(res, 200, {
+    sdkAvailable,
+    sdkError,
+    transport: saved.transport,
+    model: saved.model,
+    baseUrl: saved.baseUrl,
+    configured: Boolean(saved.enabled),
+  });
+});
+
+/** 用当前保存的设置真实走一次 SDK 通道，验证可用性（会消耗少量额度）。 */
+api.post('/api/llm/sdk/probe', async (req, res) => {
+  const saved = normalizeSettings(settingsRepo.getSettings() ?? {});
+  if (!saved.enabled) throw conflict('还没有接入模型：先在「接入模型」里填 Base URL / 模型 / Key');
+  const { probeSdk } = await import('../agent/openaiTransport.js');
+  const r = await probeSdk(saved);
+  sendJson(res, 200, { ok: true, model: r.model, reply: r.text });
+});

@@ -3,6 +3,11 @@ import { logger } from './logger.js';
 import { createApp, listen, ensureCanvasService } from './app.js';
 import { store } from './repo/jsonStore.js';
 import { syncEnabled, pullLight, streamHeavy, pushAll, setSuppress, setHydrateGate } from './cloud/storeSync.js';
+import * as crawlService from './services/crawlService.js';
+import * as indexDb from './repo/indexDb.js';
+import * as indexService from './services/indexService.js';
+import * as schedulerService from './services/schedulerService.js';
+import * as settingsRepo from './repo/settingsRepo.js';
 
 /**
  * 启动前把云端数据回灌到本地。
@@ -62,7 +67,64 @@ async function hydrateFromCloud() {
   }
 }
 
+/* 开机抹除 API Key（默认开启，见 config.wipeKeyOnStart）
+ * 目的：上一次运行留下的 Key 不跨会话存在。关机/重启后第一次启动，
+ * 本机保存的 LLM 配置直接清空，要生成就得重新填——避免「别人拿到机器/链接就能白用」。
+ * 只清 data/settings.json 里的 llm 段，作品、小说、榜单、索引一概不动。
+ * 放在 listen 之前：服务一旦对外可用，配置必须已经是干净的。 */
+if (config.wipeKeyOnStart) {
+  try {
+    const had = settingsRepo.clearSettings();
+    if (had) logger.info('settings.wipeOnStart', { had: true, note: '上次保存的 LLM 配置已抹除' });
+  } catch (e) {
+    logger.warn('settings.wipeOnStart.fail', { reason: String(e?.message).slice(0, 120) });
+  }
+}
+
 const server = await listen(createApp());
+
+/* 扩展能力：SQLite 索引 + 定时任务
+ * 全部放在 try 里：任何一环出问题都不允许影响主服务启动。 */
+try {
+  indexDb.open();
+  schedulerService.start([
+    {
+      id: 'index-sync',
+      name: '作品索引同步',
+      cron: '*/10 * * * *',
+      run: async () => indexService.syncNow(),
+    },
+    {
+      id: 'hot-refresh',
+      name: '爆款榜单刷新（每周自动爬）',
+      cron: config.crawl.cron,
+      run: async () => {
+        const r = await crawlService.fetchHot({ limit: 12, refresh: true });
+        return {
+          items: r.items?.length ?? 0,
+          dataDate: r.meta?.dataDate ?? null,
+          source: r.source,
+          fallback: r.fallbackReason ?? null,
+        };
+      },
+    },
+  ]);
+  // 定时任务只管每周兜底；打开平台这一刻也要是当天榜，所以启动后补一次
+  setTimeout(() => {
+    crawlService
+      .ensureHotFresh({ limit: 12 })
+      .then((r) => logger.info('hot.boot.fresh', r))
+      .catch((e) => logger.warn('hot.boot.failed', { reason: String(e?.message).slice(0, 120) }));
+  }, 6000).unref();
+  // 首次同步等云端回灌完再跑，否则会把空列表写进索引
+  setTimeout(() => {
+    indexService.syncNow()
+      .then((r) => logger.info('index.sync.boot', { projects: r.projects, novels: r.novels }))
+      .catch((e) => logger.warn('index.sync.boot.fail', { reason: String(e?.message).slice(0, 120) }));
+  }, 4000).unref();
+} catch (e) {
+  logger.warn('ext.init.fail', { reason: e?.message });
+}
 
 // 无限画布子服务：独立进程运行 canvas/server.js，主服务只做 /canvas/* 代理。
 try { ensureCanvasService(); } catch (e) {
@@ -90,6 +152,8 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('server.shutdown', { signal });
+
+  try { schedulerService.shutdown(); } catch { /* 停表失败不挡停机 */ }
 
   server.close(() => {
     logger.info('server.closed');

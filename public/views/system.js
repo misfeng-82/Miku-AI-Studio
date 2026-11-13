@@ -180,12 +180,47 @@ export function viewEngine() {
     `}
   </div>`;
 
+  /* —— 扩展能力：SQLite 索引 / 定时任务 / SDK 通道 / 导出引擎 —— */
+  const ext = state.data.ext;
+  const extCard = `<div class="card">
+    <div class="card-head"><div><h2>扩展能力</h2><div class="sub">SQLite 索引 · 定时任务 · 导出引擎 · 模型 SDK 通道</div></div>
+      <div class="actions">${busyBtn('extRefresh', ext ? '刷新状态' : '读取扩展状态', 'refresh')}</div></div>
+    ${ext ? `
+      ${statStrip([
+        { label: '作品索引', value: ext.stats?.projects?.count ?? 0, cls: 'hl' },
+        { label: '小说索引', value: ext.stats?.novels?.count ?? 0 },
+        { label: '索引字数', value: (ext.stats?.novels?.words ?? 0).toLocaleString('en-US') },
+        { label: '导出记录', value: ext.stats?.exports?.count ?? 0 },
+      ])}
+      <div style="margin-top:16px"><div class="fl" style="margin-bottom:8px">定时任务</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>任务</th><th>周期</th><th>下次</th><th>运行</th><th>失败</th><th>上次</th></tr></thead><tbody>
+        ${(ext.jobs ?? []).map((j) => `<tr>
+          <td class="row-title">${esc(j.name)}</td>
+          <td class="mono">${esc(j.cron)}</td>
+          <td class="row-sub">${j.nextRun ? new Date(j.nextRun).toLocaleString('zh-CN') : (j.enabled ? '—' : '已停用')}</td>
+          <td class="mono">${j.runs}</td>
+          <td class="mono">${j.failures || '—'}</td>
+          <td class="row-sub">${j.lastError ? esc(j.lastError) : j.lastRunAt ? new Date(j.lastRunAt).toLocaleString('zh-CN') : '尚未运行'}</td>
+        </tr>`).join('')}
+        </tbody></table></div></div>
+      <div class="kv-grid" style="margin-top:12px">
+        <div class="kv"><dt>SQLite 文件</dt><dd class="mono" style="font-size:10.5px">${esc(ext.stats?.db ?? '—')}</dd></div>
+        <div class="kv"><dt>模型 SDK</dt><dd>${ext.sdk?.sdkAvailable ? `可用 · 当前传输层 ${esc(ext.sdk.transport)}` : `不可用：${esc(ext.sdk?.sdkError ?? '未知')}`}</dd></div>
+      </div>` : `<div class="notice notice-info">${ICONS.chart}<div>点「读取扩展状态」看 SQLite 索引规模（作品 / 小说 / 导出流水）、两个定时任务的运行情况，以及 openai SDK 通道是否可用。</div></div>`}
+    <div class="actions" style="margin-top:14px">
+      <button class="btn" data-run="extIndexSync">${ICONS.refresh}立即同步索引</button>
+      <a class="btn" href="/api/export/backup.zip" download>${ICONS.download}全库备份 ZIP</a>
+    </div>
+    <div class="muted" style="font-size:10.5px;margin-top:10px">索引库只是 data/*.json 的只读投影，删掉 data/miku-index.db 也会自动重建，不影响作品本身。</div>
+  </div>`;
+
   return pageHead('引擎', '引擎与项目', '质量门、运行模式、用量与数据位置——把这个工具本身讲清楚。', tags) + `
   <div class="card">
     <div class="card-head"><div><h2>运行模式</h2><div class="sub">评估 / 优化 / 拆镜恒定本地判定，不随模式切换</div></div></div>
     <div class="notice ${live ? 'notice-ai' : 'notice-ok'}">${live ? ICONS.cpu : ICONS.shield}<div>${live ? '生成与续写调用你接入的模型；评估、优化、拆镜始终是本地确定性引擎。' : '剧本走内置样本 + 确定性质量门，全程零费用、离线可用。在 .env 配置 LLM_BASE_URL / LLM_API_KEY 后，生成与续写自动切到模型模式。'}</div></div>
   </div>
   ${usageCard}
+  ${extCard}
   <div class="card">
     <div class="card-head"><div><h2>质量门清单</h2><div class="sub">共 ${(g.outline ?? 0) + (g.script ?? 0)} 道 · 来自开源短剧引擎</div></div></div>
     ${statStrip([
@@ -248,7 +283,10 @@ export function viewLibrary() {
       <div class="card-head"><div><h2>${esc(cur.name)}</h2><div class="sub">${esc(cur.genre ?? '')} · ${cur.episodes ?? '—'} 集 · 单集 ${cur.minutesPerEpisode ?? '—'} 分钟 · 创建于 ${fmtDay(cur.createdAt)}</div></div>
         <div class="actions">
           ${cur.stages?.script?.data ? `<button class="btn" data-act="libraryExportJson:${esc(cur.id)}">${ICONS.doc}导出 JSON</button>
-          <button class="btn" data-act="libraryExportMd:${esc(cur.id)}">${ICONS.doc}导出 Markdown</button>` : ''}
+          <button class="btn" data-act="libraryExportMd:${esc(cur.id)}">${ICONS.doc}导出 Markdown</button>
+          <a class="btn" href="/api/projects/${esc(cur.id)}/export/docx" download title="带排版的 .docx，Word / WPS 直接打开">${ICONS.download}Word</a>
+          <button class="btn" data-act="libraryPdf:${esc(cur.id)}" title="PDF 已嵌入中文字体，换设备不乱码">${ICONS.download}PDF</button>
+          <button class="btn" data-act="libraryZip:${esc(cur.id)}" title="剧本 + 大纲 + 评估 + 原始 JSON 一起打包">${ICONS.download}打包 ZIP</button>` : ''}
           <button class="btn btn-ghost" data-act="libraryClose">${ICONS.x}关闭</button>
         </div></div>
       ${cur.stages?.script?.data
@@ -278,5 +316,15 @@ export const runners = {
   async libraryLoad() {
     state.projects = (await api.projects()).items ?? [];
     toast(state.projects.length ? `读到 ${state.projects.length} 份作品` : '作品库是空的');
+  },
+  async extRefresh() {
+    const [stats, sched, sdk] = await Promise.all([api.indexStats(), api.scheduler(), api.sdkStatus()]);
+    state.data.ext = { stats, jobs: sched.jobs ?? [], sdk };
+    toast(`索引 ${stats?.projects?.count ?? 0} 份作品 / ${stats?.novels?.count ?? 0} 本小说 · ${(sched.jobs ?? []).length} 个定时任务`);
+  },
+  async extIndexSync() {
+    const r = await api.indexSync();
+    toast(`已同步：${r.projects ?? 0} 份作品 / ${r.novels ?? 0} 本小说`);
+    await runners.extRefresh();
   },
 };

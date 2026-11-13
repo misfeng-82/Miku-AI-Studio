@@ -258,6 +258,8 @@ function workbench(b) {
           ${busyBtn('novelScan', '扫本章（免费）', 'radar')}
           <button class="btn" data-noveltidy title="清 Markdown 符号 + 统一中文标点 + 智能排版（本地，不花钱）">${ICONS.wand}整理排版</button>
           <button class="btn" data-novelcopych>${ICONS.copy}复制本章</button>
+          <button class="btn" data-run="novelDocx" title="导出全书为 Word（.docx）">${ICONS.download}Word</button>
+          <button class="btn" data-run="novelPdf" title="导出全书为 PDF（已嵌入中文字体）">${ICONS.download}PDF</button>
           <button class="btn" data-novelsave>${ICONS.check}保存</button>
           <span class="muted" style="font-size:10.5px;margin-left:auto">续写接在正文末尾，不覆盖你写的</span>
         </div>` : `<div class="empty"><div class="eicon">${ICONS.doc}</div><h3>还没有章节</h3><p>点左侧「+ 新建」开第一章。</p></div>`}
@@ -301,6 +303,37 @@ export function viewNovel() {
 const cur = () => active();
 
 export const runners = {
+  /** 导出 Word（docx）：真实 .docx 文件，Word/WPS 可直接打开 */
+  novelDocx() {
+    const b = book();
+    if (!b?.id) return toast('先打开一本书', 'warn');
+    downloadFromUrl(`/api/novels/${b.id}/export/docx`, `正在导出《${b.title}》Word…`);
+  },
+
+  /** 导出 PDF：嵌入中文字体，跨设备不乱码。
+   *  走 fetch → Blob → objectURL：Chrome 的内置 PDF 预览会截走 attachment 下载，
+   *  用 blob 下载可稳定落盘。 */
+  async novelPdf() {
+    const b = book();
+    if (!b?.id) return toast('先打开一本书', 'warn');
+    toast(`正在导出《${b.title}》PDF…`);
+    try {
+      const res = await fetch(`/api/novels/${b.id}/export/pdf`);
+      if (!res.ok) throw new Error(`导出失败（HTTP ${res.status}）`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${b.title || 'novel'}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+      toast(e.message || 'PDF 导出失败', 'err');
+    }
+  },
+
   async novelCreate() {
     const c = state.cfg;
     if (!String(c.novelTitle || '').trim()) return toast('先起个书名', 'warn');
@@ -553,4 +586,15 @@ export async function exportBook(id) {
   const r = await api.novelExport(id);
   download(r.filename, r.text);
   toast(`已导出 ${r.chapters} 章 / ${r.words} 字`);
+}
+
+/** 触发浏览器下载二进制导出（服务端带 Content-Disposition，不需要前端拼 Blob）。 */
+function downloadFromUrl(url, note) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (note) toast(note);
 }

@@ -147,4 +147,14 @@ export const api = {
   crawl: (id, b) => request('POST', `/api/projects/${id}/crawl`, b),
   saveProjectScript: (id, b) => request('POST', `/api/projects/${id}/script`, b),
   reportUrl: (id) => `/api/projects/${id}/report`,
+
+  // —— 扩展能力（导出 / 图片 / SQLite 索引 / 定时任务 / SDK） ——
+  indexStats: () => request('GET', '/api/index/stats'),
+  indexSync: () => request('POST', '/api/index/sync', {}),
+  indexExports: (limit = 10) => request('GET', `/api/index/exports?limit=${limit}`),
+  scheduler: () => request('GET', '/api/scheduler'),
+  schedulerRun: (id) => request('POST', `/api/scheduler/${id}/run`, {}),
+  imagesList: (dir = 'canvas/data', limit = 12) => request('GET', `/api/images/list?dir=${encodeURIComponent(dir)}&limit=${limit}`),
+  imagesInfo: (path) => request('GET', `/api/images/info?path=${encodeURIComponent(path)}`),
+  sdkStatus: () => request('GET', '/api/llm/sdk/status'),
 };

@@ -16,6 +16,7 @@
     "rendercheck": "node scripts/rendercheck.mjs",
     "enginecheck": "node scripts/enginecheck.mjs",
     "secretscan": "node scripts/secretscan.mjs",
+    "depscheck": "node scripts/depscheck.mjs",
     "verify:offline": "node scripts/selftest.mjs && node scripts/uicheck.mjs && node scripts/enginecheck.mjs && node scripts/secretscan.mjs"
   },
   "engines": {
@@ -24,6 +25,14 @@
   "license": "SEE LICENSE IN LICENSE",
   "licenseNote": "混合许可：本项目原创部分 MIT，src/engine/ 源自 shuohao-skills 适用 Apache-2.0。详见 LICENSE / NOTICE / THIRD-PARTY.md",
   "dependencies": {
-    "@tencent-ai/workbuddy-cloud-sdk": "^0.1.4-dev.ca27990.202610161713"
+    "@tencent-ai/workbuddy-cloud-sdk": "^0.1.4-dev.ca27990.202610161713",
+    "adm-zip": "^0.6.1",
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^13.1.1",
+    "docx": "^9.15.3",
+    "node-cron": "^4.6.0",
+    "openai": "^7.55.0",
+    "pdfkit": "^0.20.2",
+    "sharp": "^0.35.5"
   }
 }

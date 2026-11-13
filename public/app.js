@@ -106,8 +106,31 @@ const RUNNERS = {
   ...tools.runners,
   ...deai.runners,
   ...novel.runners,
-  usage: system.runners.usage,
+  ...system.runners,
 };
+
+/* ================= 二进制导出（PDF / ZIP） =================
+ * 为什么不直接用 <a href download>：Chrome 会把 application/pdf 交给内置预览器、
+ * 对 http 源的 .zip 也可能按安全策略拦下，结果是"点了没反应"。
+ * 先 fetch 成 Blob 再触发下载，MIME 不再参与决策，落盘稳定。
+ */
+async function downloadBinary(url, baseName, ext) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`导出失败（HTTP ${res.status}）`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `${baseName || 'export'}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+  } catch (e) {
+    toast(e.message || '导出失败', 'err');
+  }
+}
 
 /* ================= 写章的局部 loading ================= */
 /**
@@ -425,6 +448,14 @@ const ACTIONS = {
     } catch (e) { toast(e.message, 'err'); }
   },
   libraryClose: async () => { state.data.library = null; render(); },
+  libraryPdf: async (id) => {
+    const p = state.data.library?.id === id ? state.data.library : await api.project(id).catch(() => null);
+    await downloadBinary(`/api/projects/${id}/export/pdf`, p?.name, 'pdf');
+  },
+  libraryZip: async (id) => {
+    const p = state.data.library?.id === id ? state.data.library : await api.project(id).catch(() => null);
+    await downloadBinary(`/api/projects/${id}/export/zip`, p?.name, 'zip');
+  },
   libraryExportJson: async (id) => {
     try {
       const p = state.data.library?.id === id ? state.data.library : await api.project(id);

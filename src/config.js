@@ -51,11 +51,15 @@ export const config = Object.freeze({
     maxRetries: num('LLM_MAX_RETRIES', 3, 0, 10),
   }),
 
-  // 抓取层：默认走内置真实剧目榜（assets/hotDramas.js），不发起任何外部请求
+  // 抓取层：默认直接抓红果官网榜单（真实数据，见 hotCrawler.js）；
+  // 抓不到会回落内置剧目库 assets/hotDramas.js，不会给空榜。
+  // 想完全不联网（离线开发 / 跑测试），设 CRAWL_USE_MOCK=1。
   crawl: Object.freeze({
-    useMock: str('CRAWL_USE_MOCK', '1', ['0', '1']) === '1',
+    useMock: str('CRAWL_USE_MOCK', '0', ['0', '1']) === '1',
     endpoint: str('CRAWL_ENDPOINT', ''),
     timeoutMs: num('CRAWL_TIMEOUT_MS', 15000, 1000, 120000),
+    // 自动抓取周期：默认每周一 09:00 抓一次最新榜（cron 表达式，改这里就换频率）
+    cron: str('CRAWL_CRON', '0 9 * * 1'),
   }),
 
   // 任务执行器
@@ -67,6 +71,11 @@ export const config = Object.freeze({
   // 访问口令：留空 = 不启用门禁（本机开发与自动化测试的默认状态）。
   // 部署到公网必须设置，否则任何拿到链接的人都能改设置、删作品。
   accessToken: str('ACCESS_TOKEN', ''),
+
+  // 开机抹除：默认开启。每次启动都把上次留下的 LLM 配置（API Key）清掉，
+  // 关机之后不存在「记忆」——下次要生成必须重新填 Key。
+  // 想保留配置就设 WIPE_KEY_ON_START=0。
+  wipeKeyOnStart: str('WIPE_KEY_ON_START', '1', ['0', '1']) === '1',
 
   // 限流：默认 300 次/分钟/IP。登录端点单独用更严的阈值防暴力猜口令。
   rateLimit: Object.freeze({

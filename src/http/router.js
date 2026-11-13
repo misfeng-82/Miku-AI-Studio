@@ -62,3 +62,24 @@ export function sendText(res, status, text, type = 'text/plain; charset=utf-8') 
   });
   res.end(text);
 }
+
+/** 二进制下载（docx / pdf / zip / 图片）。filename 走 RFC 5987，中文文件名不会乱码。 */
+export function sendBinary(res, status, buffer, {
+  contentType = 'application/octet-stream',
+  filename = '',
+  inline = false,
+} = {}) {
+  const headers = {
+    'content-type': contentType,
+    'content-length': buffer.length,
+    'cache-control': 'no-store',
+  };
+  if (filename) {
+    const ascii = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+    const encoded = encodeURIComponent(filename);
+    headers['content-disposition'] =
+      `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+  }
+  res.writeHead(status, headers);
+  res.end(buffer);
+}

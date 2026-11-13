@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/misfeng-82/Miku-AI-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/misfeng-82/Miku-AI-Studio/actions/workflows/ci.yml)
 
-浅色暖纸工作台，**22 个功能入口**，跑在一个网页里。主工程除一个官方云服务 SDK（`@tencent-ai/workbuddy-cloud-sdk`，零三方依赖）外，全是 Node 标准库 + 原生 ES Module，`npm ci` 即可跑；**无限画布是独立子服务**（`canvas/`，Express + dotenv），首次要进目录单独 `npm install`。
+浅色暖纸工作台，**22 个功能入口**，跑在一个网页里。核心创作链路是 Node 标准库 + 原生 ES Module；在此基础上另接了 8 个扩展依赖（文档导出 / 图片处理 / 本地索引 / 定时任务 / 模型 SDK 通道，清单见「扩展能力与依赖」一节），克隆后 `npm ci` 即可跑；**无限画布是独立子服务**（`canvas/`，Express + dotenv），首次要进目录单独 `npm install`。
 
 ## 运行前提：必须接入模型
 
@@ -22,6 +22,21 @@
 >
 > 自测与离线开发仍可显式开启：`USE_MOCK=1 node src/server.js`（仅测试用途，产品路径不依赖它）。
 
+### Key 的生命周期（谁用谁搭，离开可抹除）
+
+本项目是**单机工具**，不是 SaaS。Key 的设计遵循「谁用谁自己搭」：
+
+| 阶段 | 行为 | 说明 |
+| --- | --- | --- |
+| **保存** | 写入**你自己浏览器**的 localStorage | 不上传服务器、不进 git；别人打开同一站点看不到你的 Key |
+| **使用** | 随请求头 `x-llm-*` 发给服务，仅本次请求内使用 | 不落盘、不写日志、不回显；用完即弃 |
+| **抹除** | 弹窗底部「抹除配置」按钮 | 清掉浏览器里的 Key 与 Base URL，**不可恢复** |
+
+**抹除的时机由你决定**——换人使用、换电脑、不再用了，点一下就干净。不会自动清除（关浏览器/关服务都不会丢，避免日常使用被打断）。
+
+⚠️ **不要再用「把 Key 写进服务器」的办法做公共部署**：那等于所有访客共用你的 Key。
+公共站点请走 BYOK——每个访客填自己的。见下方「部署」一节。
+
 ## 功能地图
 
 侧栏按域分 8 组，**每个工具完全独立**：自带输入区、自带运行按钮、自带结果区，跑完整闭环。
@@ -32,7 +47,7 @@
 | **创作入口** | 首页 | 状态总览；首屏直接内嵌「爆款榜单」，进应用即可看，无需点侧栏 |
 | **创作入口** | 无限画布 | 节点式 AI 画布：卡片编排 + 贝塞尔连线，**真实调模型出图出片**。六种节点（图片 / 视频 / 音频 / 文本剧本 / 脚本分镜 / 智能剪辑），卡片上直接切「图片 / 视频」；右键出菜单、双击建节点、滚轮以光标缩放、空白拖拽平移、小地图、撤销重做、按数据流自动分层整理。跑在独立子服务 `canvas/`（5180），主服务启动时自动拉起并代理 `/canvas/*`，同源 iframe 嵌入 |
 | **小说创作** | AI 写小说 | **写作台**（左栏章节 / 中间正文 / 右栏「设定·续写·记忆·本章」）：停手 900ms 自动保存（净字数，不计标点）；**AI 续写面板**带 5 个要求预设、补充要求、关联前文 0/1/3/5 章、指定角色；**时光机**在 AI 覆盖前自动留快照、可还原；**整理排版**一键清 MD + 统一中文标点；章节自动起名；「扫本章」13 维 AI 痕迹（本地不花钱） |
-| **爆款情报** | 爆款榜单 | 真实剧目榜（`src/assets/hotDramas.js` 集中维护）：排名/剧名/题材/推荐语/平台/来源链接/海报/集数，整卡可点，10 条全部有红果官方播放页 |
+| **爆款情报** | 爆款榜单 | **直接抓红果官网当天真人剧热播榜**（`src/services/hotCrawler.js`）：排名/剧名/题材/主演/热度/评分/收藏/点赞/简介/集数/海报/官方链接，整卡可点；`hot-refresh` 定时任务**每周一 09:00 自动爬一次**（周期由 `CRAWL_CRON` 改），另外打开平台时会自动对齐一次当天榜。抓不到时回落内置剧目库 `src/assets/hotDramas.js` 并在接口里标 `fallbackReason`（`CRAWL_USE_MOCK=1` 可强制离线走内置库） |
 | | 爆款拆解 | 粘贴原文，按行扫出钩子/爽点/情绪节拍 |
 | | 对标分析 | 自家剧本 vs 爆款基准，逐项量差距 |
 | **剧本创作** | AI 剧本生成 | 三段式：梗概人设 → 分集大纲（10 集一批）→ 逐集正文，产出《都市涅槃》标准稿；每步过引擎门，不过带诊断重修。正文支持**增量分段生成**：一段一集、写完即上屏、可停止/断点续跑，全部完成后自动组装整体交付 |
@@ -239,6 +254,49 @@ Key 存在每个访客自己的浏览器里，服务器不保存任何人的 Key
 - **构建命令别留空**：主工程要 `npm ci`（1 个官方云 SDK），画布子服务还要 `cd canvas && npm install`，合起来是 `npm ci && cd canvas && npm install`；启动入口 `node src/server.js`
 - 必须在控制台设 `ACCESS_TOKEN`，否则等于公开裸奔
 - 免费实例文件系统是临时的，`data/` 会随重启清空；画布以子进程运行，512 MB 免费实例长跑建议升到 Starter
+
+## 扩展能力与依赖（2026-11-12）
+
+在原有创作链路之上新增 6 类能力。全部是**新增文件 + 新增端点**，没有改动任何既有数据格式与业务流程。
+
+| 依赖 | 版本 | 用来做什么 |
+| --- | --- | --- |
+| `docx` | ^9.15 | 生成真正的 .docx（Word/WPS 可直接打开） |
+| `pdfkit` | ^0.20 | 生成 PDF，嵌入中文 TrueType 字体（Win 用 simhei，Linux/macOS 自动找 Noto/WQY/PingFang） |
+| `archiver` | ^8.0 | 流式打包 ZIP（注意 8.x 是纯 ESM，只有命名导出 `ZipArchive`，**没有 default**） |
+| `adm-zip` | ^0.6 | 读取/校验 ZIP 条目 |
+| `sharp` | ^0.35 | 缩略图、封面裁切、文字水印、压缩（原生模块） |
+| `better-sqlite3` | ^13.1 | 本地索引库（WAL，可随时重建）（原生模块） |
+| `node-cron` | ^4.6 | 定时任务（索引同步 / 榜单刷新） |
+| `openai` | ^7.55 | 第二条模型传输通道（SDK 通道，默认仍走原生 fetch） |
+
+**能力入口**
+
+- 导出 Word / PDF：AI 写小说写作台工具栏（`Word` `PDF`）、作品库详情（`Word` `PDF` `打包 ZIP`）
+- 索引、定时任务、SDK 状态、全库备份：侧栏「引擎与关于」→「扩展能力」卡片
+- 命令行：`npm run verify:offline` 覆盖原有 138 项自测 + 接线检查 + 引擎质量门 + 密钥扫描
+
+**新增 API（`/api/`）**
+
+```
+GET  /api/novels/:id/export/docx|pdf
+GET  /api/projects/:id/export/docx|pdf|zip
+GET  /api/export/backup.zip
+GET  /api/images/list|info        POST /api/images/op（thumb|cover|watermark|compress）
+GET  /api/index/stats             POST /api/index/sync
+GET  /api/index/exports
+GET  /api/scheduler               POST /api/scheduler/:id/run|stop|start
+GET  /api/llm/sdk/status          POST /api/llm/sdk/probe
+```
+
+**索引库**：`data/miku-index.db`（SQLite，WAL）。它只是 `data/*.json` 的只读投影，删掉会自动重建，不影响作品本身。
+
+**两个坑（改动前必读）**
+
+1. `archiver` 8.x 不能 `import archiver from 'archiver'`，必须 `import { ZipArchive } from 'archiver'`，否则启动即 `SyntaxError`。
+2. `pdfkit` 的页脚**不能**在 `pageAdded` 里写到页边距以外（如 `y > 可绘制区`），会触发自动分页 → 再次 `pageAdded` → 无限递归，最终把进程打崩（`Maximum call stack size exceeded`）。正确做法是临时把 `page.margins.bottom` 归零并加 `lineBreak: false`，写完复位光标。
+
+**浏览器下载的已知限制**：.docx / .pdf 走 Blob 下载可稳定落盘；**.zip 会被 Chrome 判为「可能有害」并要求点一次「保留」**，这是浏览器策略，不是导出失败（服务端与文件本身均正常）。
 
 ## 验证
 

@@ -77,6 +77,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // 8000 常常只够思考、正文还没开始。预算不够时客户端还会自动翻倍一次兜底。
   maxTokens: 16000,
   timeoutMs: 180000,
+  transport: 'native',
 });
 
 /** 把预设套进一份配置（用户已改过的字段不覆盖） */
@@ -103,6 +104,8 @@ export function normalizeSettings(input) {
   if (!cfg.path.startsWith('/')) cfg.path = `/${cfg.path}`;
   cfg.style = cfg.style === 'anthropic' ? 'anthropic' : 'openai';
   cfg.reasoning = REASONING_LEVELS.includes(cfg.reasoning) ? cfg.reasoning : 'auto';
+  // 传输层：native（自研 fetch，默认）/ sdk（openai 官方 SDK 平行通道）
+  cfg.transport = cfg.transport === 'sdk' ? 'sdk' : 'native';
   return cfg;
 }
 
@@ -198,6 +201,12 @@ const MAX_TOKENS_CAP = 128000;
  * @returns {Promise<{text: string, usage: object|null, model: string, exhausted: boolean, reason: string}>}
  */
 async function requestOnce(cfg, messages, { signal } = {}) {
+  // 可选传输层：显式选 sdk 且是 OpenAI 兼容协议时改走官方 SDK（Anthropic 原生协议仍走自研 fetch）
+  if (cfg.transport === 'sdk' && (cfg.style ?? 'openai') !== 'anthropic') {
+    const { requestViaSdk } = await import('./openaiTransport.js');
+    return requestViaSdk(cfg, messages, { signal });
+  }
+
   const url = `${cfg.baseUrl}${cfg.path}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
