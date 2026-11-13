@@ -236,9 +236,9 @@ Key 存在每个访客自己的浏览器里，服务器不保存任何人的 Key
 ## 部署
 
 公网部署（Render）的完整步骤见 **[DEPLOY.md](DEPLOY.md)**。要点：
-- 零依赖，构建命令可留空，启动入口 `node src/server.js`
+- **构建命令别留空**：主工程要 `npm ci`（1 个官方云 SDK），画布子服务还要 `cd canvas && npm install`，合起来是 `npm ci && cd canvas && npm install`；启动入口 `node src/server.js`
 - 必须在控制台设 `ACCESS_TOKEN`，否则等于公开裸奔
-- 免费实例文件系统是临时的，`data/` 会随重启清空
+- 免费实例文件系统是临时的，`data/` 会随重启清空；画布以子进程运行，512 MB 免费实例长跑建议升到 Starter
 
 ## 验证
 

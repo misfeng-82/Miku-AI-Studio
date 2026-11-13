@@ -4,8 +4,9 @@
 # 或者不建蓝图，手动 New → Web Service，把下面的值和界面对上即可。
 #
 # 关键点：
-#   - 本项目零依赖，不需要 npm install，构建命令留空
+#   - 主工程有 1 个依赖（官方云 SDK），画布子服务另有 express + dotenv，都要装
 #   - 启动入口是 src/server.js；它会在注入 PORT 时自动绑 0.0.0.0
+#   - 画布由主服务自动拉起（子进程），不用单独建服务
 #   - ACCESS_TOKEN 不写进仓库（sync: false），部署时在控制台填一次
 #   - 免费实例的文件系统是临时的：data/ 在重启或重新部署后会清空
 
@@ -17,8 +18,8 @@ services:
     region: singapore
     branch: main
 
-    # 零依赖：没有要装的包，也没有构建步骤
-    buildCommand: echo "no dependencies to install"
+    # 主工程 npm ci + 画布子服务单独装（缺后者时画布页显示「画布服务未启动」，其余工具不受影响）
+    buildCommand: npm ci && cd canvas && npm install
     startCommand: node src/server.js
 
     # Render 用这个路径判断实例是否真的起来了

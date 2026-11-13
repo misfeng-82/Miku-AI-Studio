@@ -49,10 +49,14 @@ git push -u origin main
 | --- | --- |
 | Runtime | Node |
 | Region | Singapore（离得近） |
-| Build Command | `echo "no dependencies to install"` |
+| Build Command | `npm ci && cd canvas && npm install` |
 | Start Command | `node src/server.js` |
 | Health Check Path | `/health` |
 | Instance Type | Free |
+
+> **画布的依赖必须一起装。** 主工程依赖 1 个官方云 SDK，画布子服务另有 `express` + `dotenv`（有独立的 `canvas/package.json`）。
+> 只跑 `npm ci` 的话，画布页会显示「画布服务未启动」，其余 21 个工具不受影响。
+> 另外画布在主服务里以**子进程**方式运行，免费实例只有 512 MB 内存，长跑建议用 Starter 档。
 
 ---
 
