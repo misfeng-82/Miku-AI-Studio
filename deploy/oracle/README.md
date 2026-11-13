@@ -15,6 +15,25 @@
 
 ---
 
+## 前置：先确认这三样，缺一样都会卡住
+
+| 需要 | 现实门槛 | 拿不到怎么办 |
+| --- | --- | --- |
+| **Oracle Cloud 账号** | 注册要绑一张能验 1 美元的卡（Visa / Mastercard 双币卡多数可行，纯国内单币卡常被拒）；Always Free 只在该账号的**主区域**生效 | 换卡重试；或先用 Render（免费但数据会丢，见 `DEPLOY.md`） |
+| **SSH 客户端** | Windows 10/11 自带 OpenSSH，不用装 | 用 Oracle 控制台右上角的 **Cloud Shell**，浏览器里直接敲，效果一样 |
+| **实例能出网** | 要能访问 github.com 和 nodejs.org | 出网受限时脚本会在下载 Node 那步失败，改用「方式 B」scp 传代码，或换镜像源 |
+
+**Windows 上连实例**（PowerShell 直接敲，不用 PuTTY）：
+
+```powershell
+# -i 后面是建实例时下载的私钥；Ubuntu 镜像用户是 ubuntu，Oracle Linux 是 opc
+ssh -i C:\Users\你\.ssh\oracle-key.pem ubuntu@<实例公网IP>
+```
+
+首次连接问 `yes/no` 输 `yes`；报 `Permission denied` 多半是私钥路径或用户名写错了。
+
+---
+
 ## 0. 五分钟快速路径
 
 在实例上（前提：代码已推到 GitHub）：
@@ -217,6 +236,7 @@ journalctl -u caddy -n 50 --no-pager | grep -iE "error|acme|challenge"
 | `dns problem` / `no such host` | A 记录没生效或指错 IP → `dig +short 域名` |
 | `unauthorized` / `403`         | Cloudflare 橙云拦截 → 改 DNS only    |
 | 一直 `trying again`              | 域名拼错，或 IP 变了（实例重启换公网 IP）        |
+| `too many certificates` / `rate limited` | sslip.io 与所有人共用 Let's Encrypt 的限流池，短时间反复重试会撞上限 → 等 1 小时再试，或直接换正式域名 |
 
 实在卡住：`sudo systemctl restart caddy` 再看日志；证书文件在 `/var/lib/caddy/.local/share/caddy/certificates/`。
 
