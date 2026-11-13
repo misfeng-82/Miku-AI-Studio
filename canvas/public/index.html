@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>无限画布 · Infinite Canvas</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23111'/><circle cx='8' cy='12' r='2.2' fill='%23fff'/><circle cx='16' cy='8' r='2.2' fill='%2314C39A'/><path d='M9.6 11L14.4 9' stroke='%23fff' stroke-width='1.6'/></svg>" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+<!-- ============ 顶栏 ============ -->
+<header class="topbar">
+  <button class="icon-btn" id="btnPanel" title="收起/展开左侧面板" aria-label="切换面板">
+    <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+
+  <input class="doc-name" id="docName" value="未命名画布" title="点击重命名" />
+
+  <div class="pill" id="saveState"><i></i>已保存</div>
+  <div class="pill is-warn" id="modelState"><i></i>检测中…</div>
+
+  <div class="seg" role="tablist">
+    <button class="seg-btn is-on" data-mode="flow">工作流</button>
+    <button class="seg-btn" data-mode="board">故事板</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <button class="btn" id="btnRunAll">
+    <svg viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z"/></svg>运行全部
+  </button>
+  <button class="btn" id="btnFitAll">适应画布</button>
+  <button class="btn" id="btnApi">接 API</button>
+  <button class="btn btn-ghost" id="btnHelp">快捷键</button>
+</header>
+
+<!-- ============ 左侧面板 ============ -->
+<aside class="panel" id="panel">
+  <nav class="ptabs">
+    <button class="ptab is-on" data-ptab="nodes">画布</button>
+    <button class="ptab" data-ptab="assets">素材</button>
+    <button class="ptab" data-ptab="prompts">提示词</button>
+  </nav>
+
+  <div class="pbody">
+    <div class="prow">
+      <span class="plabel">画布元素</span>
+      <span class="pcount" id="nodeCount">0</span>
+      <select class="pfilter" id="filterType">
+        <option value="all">全部</option>
+        <option value="image">图片</option>
+        <option value="video">视频</option>
+        <option value="audio">音频</option>
+        <option value="text">文本</option>
+        <option value="shot">分镜</option>
+      </select>
+    </div>
+    <input class="psearch" id="nodeSearch" placeholder="搜索节点" />
+    <div class="plist" id="nodeList">
+      <div class="pempty">画布暂无节点</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ============ 画布 ============ -->
+<main class="stage" id="stage">
+  <div class="grid" id="grid"></div>
+
+  <div class="world" id="world">
+    <svg class="wires" id="wires"></svg>
+  </div>
+
+  <!-- 空态：双击提示 + 快捷节点 -->
+  <div class="empty" id="empty">
+    <p>双击画布，自由生成节点</p>
+    <div class="quick" id="quick">
+      <button class="qbtn" data-add="image">图片生成</button>
+      <button class="qbtn" data-add="video">视频生成</button>
+      <button class="qbtn" data-add="audio">音频生成</button>
+      <button class="qbtn" data-add="text">文本 / 剧本</button>
+      <button class="qbtn" data-add="shot">脚本分镜</button>
+      <button class="qbtn" data-add="edit">智能剪辑</button>
+    </div>
+  </div>
+
+  <!-- 左下工具组 -->
+  <div class="dock dock-left">
+    <button class="dock-btn" id="btnUndo" title="撤销 (Ctrl+Z)">
+      <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a6 6 0 0 1 0 12"/></svg>
+    </button>
+    <button class="dock-btn" id="btnRedo" title="重做 (Ctrl+Shift+Z)">
+      <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H10a6 6 0 0 0 0 12"/></svg>
+    </button>
+    <button class="dock-btn" id="btnTidy" title="整理画布（自动排列）">
+      <svg viewBox="0 0 24 24"><path d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4M16 13V8"/></svg>
+    </button>
+    <button class="dock-btn" id="btnMini" title="小地图">
+      <svg viewBox="0 0 24 24"><path d="M9 4 4 6v14l5-2 6 2 5-2V4l-5 2z"/></svg>
+    </button>
+    <button class="dock-btn" id="btnSnap" title="网格吸附">
+      <svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/></svg>
+    </button>
+    <button class="dock-btn" id="btnZoomOut" title="缩小">−</button>
+    <button class="zoom-val" id="zoomVal" title="点击重置为 100%">100%</button>
+    <button class="dock-btn" id="btnZoomIn" title="放大">＋</button>
+  </div>
+
+  <!-- 底部中央工具条 -->
+  <div class="dock dock-center">
+    <button class="dock-btn is-on" id="toolSelect" title="选择 (V)">
+      <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.6L10 19z"/></svg>
+    </button>
+    <button class="dock-btn" id="toolLink" title="连线模式 (L)">
+      <svg viewBox="0 0 24 24"><path d="M9 15l6-6M8 12 5 15a3 3 0 0 0 4 4l3-3M16 12l3-3a3 3 0 0 0-4-4l-3 3"/></svg>
+    </button>
+    <div class="dock-sep"></div>
+    <button class="dock-btn" data-add="image" title="生成节点（可切图片/视频）">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 18l6-5 4 3 3-2 3 3"/></svg>
+    </button>
+    <button class="dock-btn" data-add="text" title="文本节点">
+      <svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14M8 19h8"/></svg>
+    </button>
+    <button class="dock-btn" data-add="shot" title="分镜节点">
+      <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 5v14M16 5v14M4 11h4M16 11h4"/></svg>
+    </button>
+  </div>
+
+  <!-- 小地图 -->
+  <div class="minimap" id="minimap"><div class="mini-vp" id="miniVp"></div></div>
+</main>
+
+<!-- 双击菜单 -->
+<div class="palette" id="palette">
+  <div class="palette-title">新建节点</div>
+  <button data-add="image"><i class="pdot" style="--c:#3B82F6"></i>图片生成</button>
+  <button data-add="video"><i class="pdot" style="--c:#8B5CF6"></i>视频生成</button>
+  <button data-add="audio"><i class="pdot" style="--c:#F59E0B"></i>音频生成</button>
+  <button data-add="text"><i class="pdot" style="--c:#10B981"></i>文本 / 剧本</button>
+  <button data-add="shot"><i class="pdot" style="--c:#EF4444"></i>脚本分镜</button>
+  <button data-add="edit"><i class="pdot" style="--c:#111827"></i>智能剪辑</button>
+</div>
+
+<div class="tips" id="tips"></div>
+<div class="modal" id="modal"><div class="modal-box" id="modalBox"></div></div>
+
+<div id="boot" style="position:fixed;top:8px;right:8px;z-index:999;background:#111;color:#fff;font-size:11px;padding:4px 10px;border-radius:6px;">JS 加载中…</div>
+<script>
+  // 模块加载失败（语法错误/404）不会触发 window error，这里兜底显示
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      const b = document.getElementById('boot');
+      if (b) { b.textContent = 'JS 未启动：模块加载失败'; b.style.background = '#B42318'; }
+    }, 1200);
+  });
+</script>
+<script type="module" src="./app/main.js"></script>
+</body>
+</html>

@@ -13,3 +13,7 @@ cand.json
 # 归档目录只保留说明，调试脚本与转储不进仓库（早先的 !scripts/oneoff/** 会把它们全带回来）
 scripts/oneoff/*
 !scripts/oneoff/README.md
+# 无限画布子服务：本地令牌、生成产物与依赖不入库
+canvas/data/
+canvas/node_modules/
+canvas/package-lock.json

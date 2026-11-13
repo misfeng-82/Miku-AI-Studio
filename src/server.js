@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { createApp, listen } from './app.js';
+import { createApp, listen, ensureCanvasService } from './app.js';
 import { store } from './repo/jsonStore.js';
 import { syncEnabled, pullLight, streamHeavy, pushAll, setSuppress, setHydrateGate } from './cloud/storeSync.js';
 
@@ -63,6 +63,11 @@ async function hydrateFromCloud() {
 }
 
 const server = await listen(createApp());
+
+// 无限画布子服务：独立进程运行 canvas/server.js，主服务只做 /canvas/* 代理。
+try { ensureCanvasService(); } catch (e) {
+  logger.warn('canvas.ensureFailed', { message: e?.message });
+}
 
 /**
  * 注意顺序：**先监听，再回灌**。

@@ -12,11 +12,13 @@ import * as tools from './views/tools.js';
 import * as system from './views/system.js';
 import * as deai from './views/deai.js';
 import * as novel from './views/novel.js';
+import * as canvas from './views/canvas.js';
 
 /* ================= 侧栏注册表（单一事实来源） ================= */
 const SIDEBAR = [
     { group: '创作入口', items: [
       { id: 'home', name: '首页', icon: 'home' },
+      { id: 'canvas', name: '无限画布', icon: 'grid', hot: true },
       { id: 'model', name: '接入模型', icon: 'cpu' },
     ]},
   { group: '爆款情报', items: [
@@ -58,6 +60,7 @@ const nameOf = (id) => ALL_ITEMS.find((i) => i.id === id)?.name ?? '首页';
 
 /* ================= PAGES 分发 ================= */
 const PAGES = {
+  canvas: canvas.viewCanvas,
   home: system.viewHome,
   model: system.viewModelSetup,
   engine: system.viewEngine,

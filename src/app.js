@@ -1,4 +1,8 @@
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { Router, sendJson, sendText } from './http/router.js';
@@ -12,6 +16,62 @@ import { runWithLlm, llmFromHeaders } from './agent/llmContext.js';
 import { notFound } from './errors.js';
 
 const router = api;
+
+/* ============================================================
+   无限画布子服务：独立 Express 进程（canvas/，端口 CANVAS_PORT=5180），
+   主服务把手写代理 /canvas/* 转发过去。iframe 同源嵌入，无跨域问题。
+   子进程拉起失败不影响主服务——画布页面会显示「服务未启动」。
+   ============================================================ */
+const CANVAS_PORT = Number(process.env.CANVAS_PORT || 5180);
+const CANVAS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'canvas');
+const CANVAS_ENTRY = join(CANVAS_DIR, 'server.js');
+let canvasProc = null;
+
+export function ensureCanvasService() {
+  if (canvasProc || !existsSync(CANVAS_ENTRY)) return;
+  try {
+    canvasProc = spawn(process.execPath, [CANVAS_ENTRY], {
+      cwd: CANVAS_DIR,
+      env: { ...process.env, PORT: String(CANVAS_PORT) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    canvasProc.stderr.on('data', (d) => {
+      logger.warn('canvas.stderr', { line: String(d).slice(0, 200) });
+    });
+    canvasProc.on('exit', (code) => {
+      canvasProc = null;
+      logger.warn('canvas.exited', { code });
+      // 自愈：非主动关闭的退出（崩溃/端口抢占）延迟后重新拉起
+      if (code !== 0) setTimeout(() => ensureCanvasService(), 2000);
+    });
+  } catch (e) {
+    logger.warn('canvas.spawnFailed', { message: e.message });
+  }
+}
+
+function proxyToCanvas(req, res) {
+  const proxied = httpRequest(
+    {
+      host: '127.0.0.1',
+      port: CANVAS_PORT,
+      path: req.url.replace(/^\/canvas/, '') || '/',
+      method: req.method,
+      headers: { ...req.headers, host: `127.0.0.1:${CANVAS_PORT}` },
+    },
+    (up) => {
+      // 主站 withSecurity 给所有响应加了 X-Frame-Options: DENY，会连同源的
+      // /canvas/ iframe 一起挡掉。代理响应需移除该头，画布本身由同源策略约束。
+      res.removeHeader('x-frame-options');
+      res.writeHead(up.statusCode, up.headers);
+      up.pipe(res);
+    },
+  );
+  proxied.on('error', () => {
+    res.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<div style="padding:40px;font-family:sans-serif;color:#666">画布服务未启动。重启平台即可自动拉起；或手动运行 canvas/server.js。</div>');
+  });
+  req.pipe(proxied);
+}
 
 export function createApp() {
   const server = createServer(async (req, res) => {
@@ -59,6 +119,15 @@ export function createApp() {
       }
       if (url.pathname === '/ready') {
         sendJson(res, 200, { status: 'ready' });
+        return;
+      }
+
+      // 无限画布代理：/canvas 与 /canvas/* → 画布子服务（5180）
+      if (url.pathname === '/canvas' || url.pathname.startsWith('/canvas/')) {
+        // 必须保留查询串：/canvas/api/download?url=... 等接口依赖 query，
+        // 只取 pathname 会让画布子服务收到空参数并报「url 不合法」。
+        req.url = (url.pathname.slice('/canvas'.length) || '/') + url.search;
+        proxyToCanvas(req, res);
         return;
       }
 
