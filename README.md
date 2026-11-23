@@ -18,6 +18,8 @@
 
 ## 下载安装（Windows 桌面版）
 
+> 完整步骤（覆盖安装、备份、卸载、常见问题、校验）见 **[INSTALL.md](INSTALL.md)**。
+
 **安装包（推荐，含安装向导）**：[MikuAI-Studio-1.0.1-安装包.zip](https://aka.doubaocdn.com/s/I9ZhvhVZcU) · 80.2 MB
 
 1. 下载后解压，得到 `MikuAI-Studio-1.0.1/` 文件夹
