@@ -9,7 +9,7 @@
 <link rel="mask-icon" href="/favicon.svg" color="#0E6E5C" />
 <!-- theme-color 保持页面底色 #F7F6F3：它染的是浏览器地址栏，应与页面同色而非与图标同色 -->
 <title>Miku AI创作平台 · MIKU AI STUDIO</title>
-<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/styles.css?v=20261122c" />
 </head>
 <body>
 <div class="app">
@@ -64,62 +64,121 @@
   </div>
 </div>
 
-<!-- API 接入弹窗 -->
+<!-- API 设置弹窗：文本 / 图片 / 视频 三路分开配，互不影响 -->
 <div class="modal-backdrop" id="apiModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="amTitle">
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="amTitle">
     <div class="modal-head">
-      <h2 id="amTitle">接入大模型 API</h2>
+      <h2 id="amTitle">API 设置</h2>
       <button class="icon-btn" id="amClose" type="button" aria-label="关闭">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
     <div class="modal-body">
-      <div class="notice notice-info" style="margin-bottom:16px">
+      <div class="notice notice-info" style="margin-bottom:14px">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3l9 16H3zM12 10v4M12 17h.01"/></svg>
-        <div>Key 只存在<b>你自己的浏览器</b>（localStorage），随请求头发给你正在用的这个服务，用完即弃、<b>不落盘、不上传别处</b>。所以：别人打开同一个网站要用，得填他自己的 Key——不会花发布者的额度。</div>
+        <div>三路各配各的、<b>互不影响</b>，<b>漫剧工作台只用②图片 + ③视频</b>，不配①也能跑。文本 Key 只存在<i>你自己的浏览器</i>，随请求头带走、用完即弃；图片 / 视频令牌存在本机的 <span class="mono">canvas/data/config.json</span>（明文文件，别外传）。</div>
       </div>
-      <label class="field"><span class="fl">服务商预设</span>
-        <select class="editable" id="amPreset"></select></label>
-      <div class="form-2" style="margin-top:12px">
-        <label class="field"><span class="fl">Base URL</span><input id="amBase" type="text" placeholder="https://api.deepseek.com/v1" /></label>
-        <label class="field"><span class="fl">模型名</span><input id="amModel" type="text" placeholder="deepseek-chat" list="amModelList" /><datalist id="amModelList"></datalist></label>
-      </div>
-      <label class="field" style="margin-top:12px"><span class="fl">API Key</span>
-        <input id="amKey" type="password" placeholder="sk-..." autocomplete="off" /></label>
-      <label class="field" style="margin-top:12px"><span class="fl">推理等级</span>
-        <select class="editable" id="amReasoning">
-          <option value="low">Low（推荐：拆镜 / 出稿够用，快且省）</option>
-          <option value="off">关闭思考（最快，纯机械输出时选它）</option>
-          <option value="high">High（更慢更贵，长文创作可以试）</option>
-          <option value="max">Max（最慢最贵，实测拆一集会超时）</option>
-          <option value="auto">不指定（服务端默认；DeepSeek 是 High，别家网关请选这项）</option>
-        </select></label>
-      <div class="muted" style="font-size:10.5px;margin-top:6px;line-height:1.6">思维链和正文共用「最大 Token」，思考越久正文空间越小；思考模式下温度不生效。拆镜 / 大纲这类固定 JSON 输出，High 只会让你多等几分钟。</div>
-      <div class="form-3" style="margin-top:12px">
-        <label class="field"><span class="fl">温度</span><input id="amTemp" type="number" min="0" max="2" step="0.05" /></label>
-        <label class="field"><span class="fl">最大 Token</span><input id="amMax" type="number" min="256" max="128000" step="256" /></label>
-        <label class="field"><span class="fl">超时（秒）</span><input id="amTimeout" type="number" min="10" max="600" step="10" /></label>
-      </div>
-      <label class="field" style="margin-top:12px;display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="amEnabled" style="width:auto" />
-        <span style="font-size:12px;font-weight:600">启用（不启用就继续用本地引擎）</span>
-      </label>
-      <div class="actions" style="margin-top:16px">
-        <button class="btn" id="amTest" type="button">测试连接</button>
-        <button class="btn" id="amModels" type="button">拉取模型列表</button>
-        <span id="amTestResult" class="muted" style="font-size:11px"></span>
-      </div>
+
+      <!-- ① 大语言模型 -->
+      <section class="api-sec">
+        <div class="api-sec-head">
+          <span class="api-sec-no">1</span>
+          <div class="api-sec-t"><b>大语言模型</b><span>剧本 / 大纲 / 分集正文（漫剧工作台的拆镜、出图、出片不依赖它）</span></div>
+          <span class="api-sec-state" id="asLlm">未接入</span>
+        </div>
+        <div class="api-sec-body">
+          <label class="field"><span class="fl">服务商预设</span>
+            <select class="editable" id="amPreset"></select></label>
+          <div class="form-2" style="margin-top:10px">
+            <label class="field"><span class="fl">Base URL</span><input id="amBase" type="text" placeholder="https://api.deepseek.com/v1" /></label>
+            <label class="field"><span class="fl">模型名</span><input id="amModel" type="text" placeholder="deepseek-chat" list="amModelList" /><datalist id="amModelList"></datalist></label>
+          </div>
+          <label class="field" style="margin-top:10px"><span class="fl">API Key</span>
+            <input id="amKey" type="password" placeholder="sk-..." autocomplete="off" /></label>
+          <label class="field" style="margin-top:10px"><span class="fl">推理等级</span>
+            <select class="editable" id="amReasoning">
+              <option value="low">Low（推荐：拆镜 / 出稿够用，快且省）</option>
+              <option value="off">关闭思考（最快，纯机械输出时选它）</option>
+              <option value="high">High（更慢更贵，长文创作可以试）</option>
+              <option value="max">Max（最慢最贵，实测拆一集会超时）</option>
+              <option value="auto">不指定（服务端默认；DeepSeek 是 High，别家网关请选这项）</option>
+            </select></label>
+          <div class="muted" style="font-size:10.5px;margin-top:6px;line-height:1.6">思维链和正文共用「最大 Token」，思考越久正文空间越小；思考模式下温度不生效。</div>
+          <div class="form-3" style="margin-top:10px">
+            <label class="field"><span class="fl">温度</span><input id="amTemp" type="number" min="0" max="2" step="0.05" /></label>
+            <label class="field"><span class="fl">最大 Token</span><input id="amMax" type="number" min="256" max="128000" step="256" /></label>
+            <label class="field"><span class="fl">超时（秒）</span><input id="amTimeout" type="number" min="10" max="600" step="10" /></label>
+          </div>
+          <label class="field" style="margin-top:10px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="amEnabled" style="width:auto" />
+            <span style="font-size:12px;font-weight:600">启用（不启用就继续用本地引擎）</span>
+          </label>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn-primary" id="amSave" type="button">保存这一段</button>
+            <button class="btn" id="amTest" type="button">测试连接</button>
+            <button class="btn" id="amModels" type="button">拉取模型列表</button>
+            <span id="amTestResult" class="muted" style="font-size:11px"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ② 图片 API -->
+      <section class="api-sec" id="secImg">
+        <div class="api-sec-head">
+          <span class="api-sec-no">2</span>
+          <div class="api-sec-t"><b>图片 API</b><span>角色定妆 / 场景无人图 / 关键帧</span></div>
+          <span class="api-sec-state" id="asImg">未配置</span>
+        </div>
+        <div class="api-sec-body">
+          <div class="form-2">
+            <label class="field"><span class="fl">服务地址</span><input id="aiBase" type="text" readonly placeholder="https://autodl.art" /></label>
+            <label class="field"><span class="fl">图片模型</span><input id="aiModel" type="text" list="aiModelList" placeholder="gpt-image-2.5-flare" /><datalist id="aiModelList"></datalist></label>
+          </div>
+          <label class="field" style="margin-top:10px"><span class="fl">图片令牌（AutoDL「LLM」分组）</span>
+            <input id="aiToken" type="password" placeholder="留空＝不改动已存的令牌" autocomplete="off" /></label>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn-primary" id="aiSave" type="button">保存这一段</button>
+            <button class="btn" id="aiReload" type="button">刷新模型列表</button>
+            <span id="aiStatus" class="muted" style="font-size:11px"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 视频 API -->
+      <section class="api-sec" id="secVid">
+        <div class="api-sec-head">
+          <span class="api-sec-no">3</span>
+          <div class="api-sec-t"><b>视频 API</b><span>文生视频 / 图生视频（ComfyUI 工作流）</span></div>
+          <span class="api-sec-state" id="asVid">未配置</span>
+        </div>
+        <div class="api-sec-body">
+          <label class="field"><span class="fl">视频令牌（AutoDL「ComfyUI」分组）</span>
+            <input id="avToken" type="password" placeholder="留空＝不改动已存的令牌" autocomplete="off" /></label>
+          <div class="form-2" style="margin-top:10px">
+            <label class="field"><span class="fl">文生视频工作流</span><input id="avT2V" type="text" placeholder="minimax_h3_lightx2v_no_pic" /></label>
+            <label class="field"><span class="fl">图生视频工作流</span><input id="avRef" type="text" placeholder="minimax_h3_image_audio_to_video_v2_15s" /></label>
+          </div>
+          <div class="form-3" style="margin-top:10px">
+            <label class="field"><span class="fl">默认分辨率</span><input id="avRes" type="text" placeholder="480p竖" /></label>
+            <label class="field"><span class="fl">默认时长（秒）</span><input id="avDur" type="number" min="1" max="60" /></label>
+            <label class="field"><span class="fl">服务地址</span><input id="avBase" type="text" readonly placeholder="https://autodl.art" /></label>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn-primary" id="avSave" type="button">保存这一段</button>
+            <span id="avStatus" class="muted" style="font-size:11px"></span>
+          </div>
+        </div>
+      </section>
     </div>
     <div class="modal-foot">
-      <span>OpenAI 兼容协议均可：DeepSeek V4.1 Flash / Kimi / 智谱 / 通义 / 硅基流动 / 本地 Ollama</span>
-      <button class="btn btn-danger" id="amClear" type="button" title="把本机保存的 Key 与配置彻底抹除">抹除配置</button>
-      <button class="btn-primary" id="amSave" type="button">保存并启用</button>
+      <span>OpenAI 兼容协议均可：DeepSeek / Kimi / 智谱 / 通义 / 硅基流动 / 本地 Ollama；出图出片走 AutoDL Art，令牌要按分组建</span>
+      <button class="btn btn-danger" id="amClear" type="button" title="把本机保存的文本 Key 与配置彻底抹除">抹除文本配置</button>
     </div>
   </div>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script type="module" src="/app.js"></script>
+<script type="module" src="/app.js?v=20261122e"></script>
 </body>
 </html>

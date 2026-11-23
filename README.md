@@ -16,6 +16,29 @@
 
 浅色暖纸工作台，**22 个功能入口**，跑在一个网页里。核心创作链路是 Node 标准库 + 原生 ES Module；在此基础上另接了 8 个扩展依赖，用于文档导出、图片处理、本地索引、定时任务与模型 SDK 通道（清单见「扩展能力与依赖」一节）。克隆后 `npm ci` 即可跑。
 
+## 下载安装（Windows 桌面版）
+
+**安装包（推荐，含安装向导）**：[MikuAI-Studio-1.0.1-安装包.zip](https://aka.doubaocdn.com/s/I9ZhvhVZcU) · 80.2 MB
+
+1. 下载后解压，得到 `MikuAI-Studio-1.0.1/` 文件夹
+2. **先关掉正在运行的 MikuAI Studio**（否则程序文件被占用，覆盖会失败）
+3. 双击里面的 `安装.bat`
+   - 自动装到 `%LOCALAPPDATA%\MikuAI-Studio`
+   - 桌面生成「MikuAI Studio」快捷方式，图标为 `miku.ico`
+   - 覆盖安装只替换程序文件，**原来的画布数据、剧本、主体资产图全部保留**
+4. 从桌面快捷方式启动：主服务 `http://127.0.0.1:8788`，无限画布 `http://127.0.0.1:5181`
+
+安装界面实拍：[docs/setup-wizard.png](docs/setup-wizard.png)
+
+**源码运行（开发用）**
+
+```bash
+git clone https://github.com/misfeng-82/Miku-AI-Studio.git
+cd Miku-AI-Studio
+npm ci
+node src/server.js      # 主服务 8787，无限画布 5180
+```
+
 ## 运行前提：必须接入模型
 
 **本项目以真实模型为前提。** 剧本生成、模型评审、逐集精修这三处必须调用模型——不接就是不做，没有"兜底样本稿"这种中间态。

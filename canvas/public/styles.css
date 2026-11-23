@@ -200,7 +200,9 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .n-body { padding: 0 12px 10px; }
 
 .n-preview {
-  position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 11px;
+  /* width: auto + 下方 margin 0 12px：由 flex 拉伸决定宽度，左右各留 12px，
+     不会再出现「100% + margin」把预览区顶出卡片右边框的问题 */
+  position: relative; width: auto; box-sizing: border-box; aspect-ratio: 4 / 3; border-radius: 11px;
   background: var(--surface-2); border: 1px solid var(--line);
   display: grid; place-items: center; color: var(--text-4); font-size: 11.5px; overflow: hidden;
 }
@@ -334,6 +336,8 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .modal-box {
   width: min(460px, 92vw); padding: 22px 24px; background: #fff; border-radius: 16px; box-shadow: var(--shadow-3);
 }
+/* 放大编辑提示词用的宽窗：长句一行能放更多字，不来回折行 */
+.modal-box.is-wide { width: min(880px, 94vw); }
 .modal-box h3 { margin: 0 0 12px; font-size: 15px; }
 .modal-box table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .modal-box td { padding: 6px 0; color: var(--text-2); }
@@ -526,6 +530,24 @@ body.panel-hidden .dock-left { left: 16px; }
 .chip.ref { background: #E7F8F1; color: #0E8A5F; }
 .chip.style { background: #EFF5FF; color: var(--blue); }
 
+/* 参考图 chip：@名称 + × 移除 */
+.n-refline .chip.ref {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid #BFE9D8; border-radius: 999px;
+  padding: 2px 5px 2px 9px; font-size: 12px; line-height: 1.6;
+  font-family: inherit; cursor: pointer;
+}
+.n-refline .chip.ref b {
+  font-weight: 500; font-size: 12px; width: 15px; height: 15px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; opacity: .5;
+}
+.n-refline .chip.ref:hover { border-color: #0E8A5F; }
+.n-refline .chip.ref:hover b { opacity: 1; background: #DC2626; color: #fff; }
+/* 蓝色 chip（对齐豆包/即梦输入框样式） */
+.n-refline .chip.ref { background: #EAF2FF; color: #2563EB; border-color: #CFE1FF; }
+.n-refline .chip.ref:hover { border-color: #2563EB; }
+
 .n-tools {
   position: absolute; top: -30px; right: 0; display: flex; gap: 4px;
   opacity: 0; transition: .14s; z-index: 6; pointer-events: none;
@@ -555,3 +577,179 @@ body.panel-hidden .dock-left { left: 16px; }
 }
 .ref-menu button:hover { background: var(--surface-2); color: var(--text); }
 .ref-menu button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ============ 资产库 / 生成历史 ============ */
+.cv-btn { gap: 6px; max-width: 190px; }
+.cv-btn span, .cv-btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sk-bar { display: flex; align-items: center; gap: 6px; padding: 2px 2px 4px; }
+.sk-search {
+  flex: 1; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); font: inherit; font-size: 12px; color: var(--text);
+}
+.sk-search:focus { outline: none; border-color: var(--blue); background: #fff; }
+.sk-refresh {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text-2); display: grid; place-items: center; font-size: 13px;
+}
+.sk-refresh:hover { color: var(--text); border-color: var(--line-2); }
+.sk-hist-t { flex: 1; font-size: 11.5px; color: var(--text-3); }
+
+.sk-tabs { display: flex; gap: 4px; padding: 4px 0 8px; }
+.sk-tab {
+  padding: 3px 9px; border-radius: 20px; font-size: 11.5px; color: var(--text-3);
+  background: var(--surface-2);
+}
+.sk-tab.is-on { background: var(--text); color: #fff; }
+
+.sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-bottom: 12px; }
+.sk-card {
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface);
+  position: relative; transition: box-shadow .16s, border-color .16s;
+}
+.sk-card:hover { box-shadow: var(--shadow-2); border-color: var(--line-2); }
+.sk-thumb { position: relative; aspect-ratio: 1; background: var(--surface-2); display: grid; place-items: center; overflow: hidden; }
+.sk-thumb img, .sk-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sk-audio { font-size: 22px; color: var(--text-4); }
+.sk-play { position: absolute; right: 6px; bottom: 6px; color: #fff; background: rgba(0,0,0,.5); border-radius: 6px; padding: 1px 5px; font-size: 10px; }
+.sk-meta { padding: 6px 7px 4px; }
+.sk-name { font-size: 11.5px; font-weight: 600; color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sk-sub { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+.sk-ops { display: flex; gap: 4px; padding: 0 7px 7px; }
+.sk-ops button {
+  flex: 1; height: 24px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); font-size: 12px;
+}
+.sk-ops button:hover { background: var(--text); color: #fff; }
+
+.sk-hist { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
+.sk-hrow { display: flex; gap: 8px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.sk-hrow:hover { border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.sk-hthumb { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 8px; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; }
+.sk-hthumb img, .sk-hthumb video { width: 100%; height: 100%; object-fit: cover; }
+.sk-hmain { flex: 1; min-width: 0; }
+.sk-ops { flex: 0 0 auto; }
+.sk-hrow .sk-ops { padding: 0; gap: 4px; }
+.sk-hrow .sk-ops button { width: 26px; height: 26px; flex: 0 0 26px; }
+
+/* ============ 画布切换浮层 ============ */
+.cv-mask {
+  position: fixed; inset: 0; z-index: 60; background: rgba(16, 24, 40, .34);
+  display: grid; place-items: center; backdrop-filter: blur(2px);
+}
+.cv-box {
+  width: 480px; max-height: 70vh; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.cv-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; font-size: 14px; font-weight: 600; }
+.cv-x { width: 26px; height: 26px; border-radius: 8px; color: var(--text-3); }
+.cv-x:hover { background: var(--surface-2); color: var(--text); }
+.cv-new { display: flex; gap: 8px; padding: 0 16px 12px; }
+.cv-new input {
+  flex: 1; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); font: inherit; font-size: 12.5px; color: var(--text);
+}
+.cv-new input:focus { outline: none; border-color: var(--blue); background: #fff; }
+.cv-new button { height: 32px; padding: 0 14px; border-radius: 8px; background: var(--text); color: #fff; font-size: 12.5px; }
+.cv-new button:hover { background: #000; }
+.cv-list { flex: 1; overflow-y: auto; padding: 0 10px 10px; }
+.cv-item {
+  display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.cv-item:hover { background: var(--surface-2); }
+.cv-item.is-cur { border-color: var(--blue); background: var(--blue-soft); }
+.cv-item-main { flex: 1; min-width: 0; }
+.cv-item-t { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-item-s { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.cv-mini { width: 26px; height: 26px; border-radius: 7px; color: var(--text-3); font-size: 12px; }
+.cv-mini:hover { background: var(--surface); color: var(--text); }
+.cv-danger:hover { color: var(--red); }
+.cv-empty { padding: 20px; text-align: center; color: var(--text-3); font-size: 12px; }
+.cv-foot { padding: 9px 16px 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--text-3); }
+
+.cv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+
+/* 窄窗口：顶栏只留图标，别把名字挤成一个字 */
+@media (max-width: 900px) {
+  .cv-name { display: none; }
+  .cv-btn { width: 34px; padding: 0; justify-content: center; }
+  .doc-name { width: 108px; }
+}
+
+/* ============ 生成节点卡片：把布局钉死，别让内容互相压 ============ */
+/* 预览区左右留边，不再顶着卡片边缘 */
+.n-preview { margin: 0 12px; }
+
+/* 参数区：统一 padding + 纵向间距，提示词/参数行各占一行 */
+.n-params {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px;
+}
+.n-chips { display: flex; align-items: center; gap: 6px; }
+.n-params .n-error { margin: 0; }
+
+/* 提示词框之前完全没写样式，用的是浏览器默认 textarea（约 165px 宽），
+   所以文字挤成一团、还跟上面的 chip 行叠在一起 */
+.n-prompt {
+  display: block; width: 100%; min-height: 64px; max-height: 130px;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface-2); font: inherit; font-size: 12px; line-height: 1.6;
+  color: var(--text); resize: vertical;
+}
+.n-prompt::placeholder { color: var(--text-4); }
+.n-prompt:focus {
+  outline: none; border-color: var(--blue); background: #fff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .12);
+}
+
+/* 提示词框右上角的「放大编辑」角标：聚焦或悬停时出现，不挡正文（给右侧留出 30px） */
+.n-prompt-wrap { position: relative; }
+.n-prompt { padding-right: 32px; }
+.n-prompt-zoom {
+  position: absolute; top: 6px; right: 6px; width: 21px; height: 21px; padding: 0;
+  display: grid; place-items: center; border-radius: 6px;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .92); color: var(--text-3);
+  font-size: 11px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .14s, color .14s, border-color .14s;
+}
+.n-prompt-wrap:hover .n-prompt-zoom,
+.n-prompt-wrap:focus-within .n-prompt-zoom { opacity: 1; }
+.n-prompt-zoom:hover { color: var(--blue); border-color: var(--blue); }
+
+/* 放大编辑浮层（#modal 内）：大字号、宽行距，长提示词一眼能看完 */
+.pe-area {
+  display: block; width: 100%; min-height: 44vh; max-height: 56vh;
+  padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface-2); font: inherit; font-size: 14px; line-height: 1.8; color: var(--text);
+  resize: vertical; box-sizing: border-box;
+}
+.pe-area:focus { outline: none; border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px rgba(59, 130, 246, .12); }
+.pe-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+/* 参数行：三个下拉 + 运行按钮，一行放得下就一行 */
+.n-paramrow { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; height: auto; overflow: visible; }
+.n-paramrow select {
+  height: 30px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); font-size: 11px; color: var(--text-2); min-width: 0;
+}
+.n-paramrow .n-send { height: 30px; flex: none; }
+
+/* 空态：图标略上移，两个试用按钮贴底排成一行，不再压在占位文字上 */
+.n-preview .ph { margin-top: -22px; }
+.n-try {
+  position: absolute; left: 8px; right: 8px; bottom: 8px;
+  flex-direction: row; justify-content: center; align-items: center; gap: 6px;
+}
+.n-try-t { display: none; }
+.n-try button { height: 26px; padding: 0 10px; font-size: 11.5px; }
+
+/* 节点工具条：emoji 换成线性图标，深色底上更清楚 */
+.n-tools button svg {
+  width: 14px; height: 14px; fill: none; stroke: #fff;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+.n-tools button { transition: transform .12s ease, background .12s ease; }
+.n-tools button:hover { transform: translateY(-1px); }
+.n-tools button[data-dup] { background: #374151; }
+.n-tools button[data-dup]:hover { background: #4B5563; }
+.n-tools button[data-del]:hover { background: #DC2626; }

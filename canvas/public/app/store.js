@@ -5,6 +5,7 @@
  */
 
 const KEY = 'miku.canvas.v8';
+const CANVAS_KEY = 'miku.canvas.currentId';
 const HISTORY_LIMIT = 60;
 
 let state = load();
@@ -12,6 +13,13 @@ let past = [];
 let future = [];
 const listeners = new Set();
 let saveTimer = null;
+let remoteTimer = null;
+
+/** 当前画布在后端的 id：空字符串表示还没绑定（离线或首启） */
+const remote = {
+  id: (() => { try { return localStorage.getItem(CANVAS_KEY) || ''; } catch { return ''; } })(),
+  lastPush: 0,
+};
 
 function blank() {
   return {
@@ -169,6 +177,29 @@ export function mark() {
 
 /* ---------------- 持久化 ---------------- */
 
+/** 推一版到后端：画布改成服务端存储，换设备、清缓存都不会丢 */
+function pushRemote() {
+  if (!remote.id) return;
+  clearTimeout(remoteTimer);
+  remoteTimer = setTimeout(async () => {
+    try {
+      await fetch(`api/canvases/${remote.id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: state.name,
+          view: state.view,
+          nodes: state.nodes,
+          edges: state.edges,
+        }),
+      });
+      remote.lastPush = Date.now();
+    } catch {
+      /* 后端不可达时不影响本地继续用，下次变更会再推 */
+    }
+  }, 900);
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -179,11 +210,58 @@ function scheduleSave() {
       /* 隐私模式/超额：本次会话仍然可用，只是不落盘 */
     }
   }, 320);
+  pushRemote();
 }
 
 export function saveNow() {
   clearTimeout(saveTimer);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ }
+  if (remote.id) {
+    // beforeunload 里普通 fetch 会被掐断，用 keepalive 保一版
+    try {
+      fetch(`api/canvases/${remote.id}`, {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: state.name, view: state.view, nodes: state.nodes, edges: state.edges }),
+      });
+    } catch { /* ignore */ }
+  }
+}
+
+/* ---------------- 远端画布 ---------------- */
+
+export function getCanvasId() {
+  return remote.id;
+}
+
+export function setCanvasId(id) {
+  remote.id = id || '';
+  try {
+    if (remote.id) localStorage.setItem(CANVAS_KEY, remote.id);
+    else localStorage.removeItem(CANVAS_KEY);
+  } catch { /* ignore */ }
+}
+
+/** 用后端画布数据替换当前状态（不入历史，避免撤销跨画布） */
+export function hydrate(doc, { keepView = false } = {}) {
+  if (!doc || !Array.isArray(doc.nodes)) return false;
+  state.name = doc.name || '未命名画布';
+  state.nodes = doc.nodes.map(sanitizeNode).filter(Boolean);
+  state.edges = Array.isArray(doc.edges) ? doc.edges : [];
+  if (!keepView && doc.view) {
+    const k = finite(Number(doc.view.k), 1);
+    state.view = {
+      k: k > 0 ? Math.min(2.5, Math.max(0.2, k)) : 1,
+      x: finite(Number(doc.view.x), 0),
+      y: finite(Number(doc.view.y), 0),
+    };
+  }
+  setCanvasId(doc.id);
+  past = [];
+  future = [];
+  emit('hydrate');
+  return true;
 }
 
 export function reset() {

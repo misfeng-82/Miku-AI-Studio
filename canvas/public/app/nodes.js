@@ -156,37 +156,38 @@ export function nodeHTML(n) {
   return d;
 }
 
-/** 生成节点的预览区内容：结果图/视频、上传图、mock、错误、空态尝试引导 */
+/** 生成节点的预览区**内容**（不含 .n-preview 容器）
+ *  容器统一由 genNodeHTML 提供，main.js 增量刷新时也只换 innerHTML，
+ *  这样不会出现 `.n-preview` 套 `.n-preview` 的双层结构（会把内容压在一起）。
+ */
 export function genPreviewHTML(n, t) {
   const isVideo = n.type === 'video';
-  const hasResult = Boolean(n.result && n.result.url);
+  // local 是转存到本机资产库之后的永久地址，优先用；远程链接只有 24 小时
+  const src = n.result?.local || n.result?.url || '';
 
-  if (hasResult) {
+  if (src) {
     const inner = n.result.kind === 'video'
-      ? `<video src="${esc(n.result.url)}" muted loop playsinline preload="metadata"></video><span class="play-badge">▶</span>`
-      : `<img src="${esc(n.result.url)}" alt="" />`;
-    return `<div class="n-preview" data-preview title="点击放大">${inner}<div class="prog"><i style="width:${n.progress || 0}%"></i></div></div>`;
+      ? `<video src="${esc(src)}" muted loop playsinline preload="metadata"></video><span class="play-badge">▶</span>`
+      : `<img src="${esc(src)}" alt="" />`;
+    return `${inner}<div class="prog"><i style="width:${n.progress || 0}%"></i></div>`;
   }
 
   if (n.uploadImage) {
-    return `<div class="n-preview" data-preview title="点击放大"><img src="${esc(n.uploadImage)}" alt="" /><div class="prog"><i style="width:${n.progress || 0}%"></i></div></div>`;
+    return `<img src="${esc(n.uploadImage)}" alt="" /><div class="prog"><i style="width:${n.progress || 0}%"></i></div>`;
   }
 
   if (n.status === 'error') {
-    return `<div class="n-preview"><div class="ph err">${svg('M12 9v4M12 17h.01')}<span>生成失败</span></div>
-      <div class="prog"><i style="width:0%"></i></div></div>`;
+    return `<div class="ph err">${svg('M12 9v4M12 17h.01')}<span>生成失败</span></div>
+      <div class="prog"><i style="width:0%"></i></div>`;
   }
 
-  // 空态：占位 + 尝试引导
-  return `<div class="n-preview" data-preview>
-    <div class="ph">${svg(t.icon)}<span>空${t.label}节点</span></div>
+  // 空态：占位居中 + 底部一行试用按钮
+  return `<div class="ph">${svg(t.icon)}<span>空${t.label}节点</span></div>
     <div class="n-try">
-      <div class="n-try-t">尝试：</div>
       <button data-try="img2img">⬆ 图生图</button>
       <button data-try="hd">🖼 图片高清</button>
     </div>
-    <div class="prog"><i style="width:${n.progress || 0}%"></i></div>
-  </div>`;
+    <div class="prog"><i style="width:${n.progress || 0}%"></i></div>`;
 }
 
 /**
@@ -200,15 +201,19 @@ export function setSel(v) { sel = v; }
 
 function genNodeHTML(n, t, badge) {
   const isVideo = n.type === 'video';
-  const hasResult = Boolean(n.result?.url);
+  const hasResult = Boolean(n.result?.local || n.result?.url);
   const seq = n.seq ?? '';
 
   // ---- 预览区（渲染逻辑在下方 genPreviewHTML，含上传图/结果/错误） ----
   const pv = genPreviewHTML(n, t);
 
-  // ---- 参考图 / 风格 chips：显示 @名称，一眼知道引用了谁 ----
+  // ---- 参考图 chip：@名称，点右侧 × 可移除（重新引用从「@」或「画布参考」再加） ----
   const refNames = n.refNames ?? [];
-  const refChips = refNames.map((nm) => `<span class="chip ref">@${esc(nm)}</span>`).join('');
+  const refCount = Math.max((n.refImages ?? []).length, refNames.length);
+  const refChips = Array.from({ length: refCount }, (_, i) => {
+    const nm = refNames[i] || `参考图 ${i + 1}`;
+    return `<button class="chip ref" data-refdel="${i}" title="点击移除这条引用">@${esc(nm)}<b>×</b></button>`;
+  }).join('');
 
   return `
     <div class="n-head" data-drag>
@@ -226,10 +231,15 @@ function genNodeHTML(n, t, badge) {
         <button data-chip="upload" title="上传本地图片作为参考">＋ 上传</button>
         <button data-chip="canvasref" title="引用画布上其他节点的结果">🖼 画布参考</button>
         <button data-chip="style" title="追加预设风格到提示词">🎨 风格</button>
+        <button data-chip="skill" title="套用技能预设（自动填提示词和参数）">⚡ 技能</button>
         <span class="n-flex"></span>
         <button class="n-expand" data-expand title="放大查看">⛶</button>
       </div>
-      <textarea class="n-prompt" data-f="prompt" placeholder="可直接文字生图，或上传图片输入文字指令对图片进行编辑，如：将背景改为夜晚">${esc(n.prompt)}</textarea>
+      ${refChips ? `<div class="n-refline">${refChips}</div>` : ''}
+      <div class="n-prompt-wrap">
+        <textarea class="n-prompt" data-f="prompt" title="双击可放大编辑" placeholder="可直接文字生图，或上传图片输入文字指令对图片进行编辑，如：将背景改为夜晚">${esc(n.prompt)}</textarea>
+        <button class="n-prompt-zoom" data-pzoom="1" title="放大编辑（也可双击文本框）">⛶</button>
+      </div>
       ${n.status === 'error' && n.error ? `<div class="n-error" title="${esc(n.error)}">${esc(n.error)}</div>` : ''}
       <div class="n-paramrow">
         <select class="n-pmodel" data-f="model">${modelOptions(n.type, n.model)}</select>
@@ -246,10 +256,10 @@ function genNodeHTML(n, t, badge) {
           title="${n.status === 'running' ? '生成中，进度见进度条' : '运行'}">${n.status === 'running' ? '生成中…' : '运行'}</button>
       </div>
     </div>
-    ${refChips ? `<div class="n-refline">${refChips}</div>` : ''}
     <div class="n-tools">
-      ${hasResult ? `<button data-dl title="下载到本地">⬇</button>` : ''}
-      <button data-del title="删除节点">🗑</button>
+      ${hasResult ? `<button data-dl title="下载到本地">${svg('M12 3v11M7.5 9.5l4.5 4.5 4.5-4.5M5 19h14')}</button>` : ''}
+      <button data-dup title="复制这个节点">${svg('M8.5 8.5h10v10h-10z M5.5 14.5V4.5h9.5')}</button>
+      <button data-del title="删除节点">${svg('M6 6l12 12M18 6L6 18')}</button>
     </div>
     <div class="port in" data-port="in"></div>
     <div class="port out" data-port="out"></div>
@@ -279,3 +289,45 @@ export function mockPlaceholder(n) {
 
 /** 预设风格：点「风格」chip 循环切换，追加到提示词 */
 export const STYLE_PRESETS = ['', '真实摄影质感', '电影级构图与光影', '动漫风格', '水墨画', '赛博朋克'];
+
+/**
+ * 技能预设：点节点上的「⚡ 技能」弹出，选中后自动填提示词 / 比例 / 时长。
+ * needRefs = 需要几张参考图（用 @ 引用或「画布参考」挂上）；不满足会提示，不会拦住不跑。
+ */
+export const SKILLS = [
+  {
+    id: 'char3v', name: '角色三视图', type: 'image', icon: '🧍', ratio: '9:16', needRefs: 0,
+    note: '白底正侧背三视角，用来锁人物',
+    prompt: '同一角色的三视图：正面、侧面、背面，纯白背景，全身站姿，三张里的发型、脸型、服装完全一致，写实摄影风格，细节清晰',
+  },
+  {
+    id: 'char-shot', name: '人物定妆照', type: 'image', icon: '📸', ratio: '9:16', needRefs: 0,
+    note: '单人半身/全身剧照，光线干净',
+    prompt: '写实人物定妆照：单人，自然站姿，浅景深，柔和侧光，纯色背景，面部特征清晰，电影质感，1920×1080 高清',
+  },
+  {
+    id: 'scene', name: '场景空镜', type: 'image', icon: '🏠', ratio: '16:9', needRefs: 0,
+    note: '没有人物的环境镜头',
+    prompt: '写实室内场景空镜，无人物，黄昏暖光从窗口斜射进来，材质细节丰富，电影镜头感，横构图',
+  },
+  {
+    id: 'composite', name: '剧照合成（人物+场景）', type: 'image', icon: '🎬', ratio: '9:16', needRefs: 1,
+    note: '要 1 张参考图，把人物放进场景',
+    prompt: '把参考图里的人物自然地放进这个场景：保持人物的脸型、发型、服装完全不变，补上场景光影和接触阴影，写实电影剧照质感',
+  },
+  {
+    id: 'retouch', name: '局部微调（主体不变）', type: 'image', icon: '✏️', ratio: '9:16', needRefs: 1,
+    note: '要 1 张参考图，只改描述的那一处',
+    prompt: '保持参考图的主体、构图、人物长相与服装不变，只按描述做局部调整，其余部分不要改动，光影自然衔接',
+  },
+  {
+    id: 'vid-single', name: '单图出片（首帧锁定）', type: 'video', icon: '🎞️', ratio: '9:16', duration: 10, needRefs: 1,
+    note: '要 1 张参考图，人物和场景都跟着图走',
+    prompt: '镜头缓慢推近，人物自然呼吸、轻微转头，背景光影稳定，写实电影感，动作克制不夸张',
+  },
+  {
+    id: 'vid-multi', name: '多图参考出片', type: 'video', icon: '🎥', ratio: '9:16', duration: 15, needRefs: 2,
+    note: '要 2 张以上（人物+场景），两者都锁住',
+    prompt: '人物在场景中自然对话，镜头轻微横移，环境光随动作变化，写实电影质感，口型与台词节奏一致',
+  },
+];

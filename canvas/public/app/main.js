@@ -9,7 +9,8 @@ import {
   uid, addNode, updateNode, removeNode, moveNode, addEdge, removeEdge,
   setView, setName, saveNow,
 } from './store.js';
-import { TYPES, defaultNode, nodeHTML, previewHTML, setModelCatalog, setSel, STYLE_PRESETS } from './nodes.js';
+import { TYPES, defaultNode, nodeHTML, previewHTML, setModelCatalog, setSel, STYLE_PRESETS, SKILLS } from './nodes.js?v=20261122p';
+import * as cloud from './cloud.js?v=20261122m';
 
 /* 运行期错误可见化：出问题时把信息挂到 title 和右下角提示，不用开 devtools 也能看到 */
 window.addEventListener('error', (e) => {
@@ -96,6 +97,29 @@ function centerOn(nodeId) {
   setView(view);
 }
 
+/** 把某个节点放大到「看得清」的尺寸并居中（targetW = 想要的屏幕宽度，像素）
+ *  画布缩到 40% 时节点只有 120px 宽、字全糊在一起，双击/点提示词框就会走这里。
+ *  顶部留 40、底部给工具条留 56，保证整张卡（连同提示词框和运行按钮）都在视口里，不被底栏压住。 */
+function zoomToNode(nodeId, targetW = 400) {
+  const n = get().nodes.find((x) => x.id === nodeId);
+  if (!n) return;
+  const el = nodeEls.get(nodeId);
+  const r = stage.getBoundingClientRect();
+  const h = el?.offsetHeight ?? 380;
+  const topPad = 40;
+  const bottomPad = 78;                     // 底部工具条 56 + 12 余量：留够，运行按钮不能被压住
+  const availH = Math.max(200, r.height - topPad - bottomPad);
+  const k = Math.min(2.2, Math.max(0.4, targetW / NODE_W), availH / h);
+  view.k = k;
+  view.x = r.width / 2 - (n.x + NODE_W / 2) * k;
+  view.y = topPad + availH / 2 - (n.y + h / 2) * k;
+  applyView();
+  setView(view);
+}
+
+/* 底部浮动工具条占位：56 高 + 12 余量，取景时留出来，不然卡片最后一行会被压住 */
+const DOCK_RESERVE = 78;
+
 function fit(all = true) {
   const ns = get().nodes;
   const r = stage.getBoundingClientRect();
@@ -117,10 +141,37 @@ function fit(all = true) {
     applyView(); setView(view);
     return;
   }
-  view.k = Math.max(0.25, Math.min(r.width / w, r.height / h, 1));
+  const availH = Math.max(200, r.height - DOCK_RESERVE);   // 底部工具条是浮层，别把卡片最后一行压住
+  view.k = Math.max(0.25, Math.min(r.width / w, availH / h, 1));
   view.x = -minX * view.k + (r.width - w * view.k) / 2;
-  view.y = -minY * view.k + (r.height - h * view.k) / 2;
+  view.y = -minY * view.k + (availH - h * view.k) / 2;
   applyView(); setView(view);
+}
+
+/**
+ * 取景到全部节点。不依赖 stage 尺寸以外的任何东西（宽窗口下 fit 会算不准，
+ * 这里自己按内容包围盒 + 固定留白重算，边距用 32px，保证一排卡片也能装下）。
+ */
+function frameNodes(maxK = 1) {
+  const ns = get().nodes;
+  const r = stage.getBoundingClientRect();
+  if (!ns.length) {
+    view = { k: 1, x: 0, y: 0 };
+    applyView(); setView(view);
+    return;
+  }
+  const pad = 40;
+  const xs = ns.map((n) => n.x), ys = ns.map((n) => n.y);
+  const minX = Math.min(...xs) - pad, minY = Math.min(...ys) - pad;
+  const maxX = Math.max(...xs) + NODE_W + pad;
+  const maxY = Math.max(...ys) + 340 + pad;
+  const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+  const rw = Math.max(1, r.width), rh = Math.max(1, r.height);
+  const availH = Math.max(160, rh - DOCK_RESERVE);
+  const k = Math.max(0.2, Math.min((rw - 24) / w, (availH - 24) / h, maxK));
+  view = { k, x: (rw - w * k) / 2 - minX * k, y: (availH - h * k) / 2 - minY * k };
+  applyView();
+  setView(view);
 }
 
 /* ---------------- 渲染 ---------------- */
@@ -168,6 +219,12 @@ function syncNode(el, n) {
   el.classList.toggle('is-sel', sel.has(n.id));
   el.classList.toggle('is-run', n.status === 'running');
   el.classList.toggle('is-done', n.status === 'done');
+
+  // 引用 chip 数量和数据对不上时（刚 @ 上 / 刚点 × 删掉），整块重建，否则旧 chip 会残留
+  const wantRefs = Math.max((n.refImages ?? []).length, (n.refNames ?? []).length);
+  if (wantRefs !== el.querySelectorAll('[data-refdel]').length) {
+    el.innerHTML = nodeHTML(n);
+  }
 
   const badge = el.querySelector('.n-badge-slot');
   const map = {
@@ -331,7 +388,7 @@ stage.addEventListener('pointerdown', (e) => {
     // 连线模式：点节点即连线（先点源，再点目标）
     if (mode === 'link') {
       if (!linkDrag) { linkDrag = { from: id, click: true }; setHot(id); }
-      else { if (addEdge(linkDrag.from, id)) toast('已连线'); linkDrag = null; render(); }
+      else { connectNodes(linkDrag.from, id); linkDrag = null; render(); }
       return;
     }
     if (e.shiftKey) { sel.has(id) ? sel.delete(id) : sel.add(id); }
@@ -419,7 +476,7 @@ stage.addEventListener('pointerup', (e) => {
     if (!linkDrag.click) {
       const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('.port.in');
       const to = t?.closest('.node')?.dataset.id;
-      if (to && to !== linkDrag.from) { if (addEdge(linkDrag.from, to)) toast('已连线'); }
+      if (to && to !== linkDrag.from) { connectNodes(linkDrag.from, to); }
     }
     linkDrag = null;
     clearHot();
@@ -451,15 +508,19 @@ stage.addEventListener('wheel', (e) => {
   zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 0.92 : 1.08);
 }, { passive: false });
 
-/* 双击空白 → 新建菜单 */
+/* 双击空白：默认「以双击点为锚放大」；Shift+双击 才是新建菜单 */
 stage.addEventListener('dblclick', (e) => {
-  if (e.target.closest('.node, .dock, .empty, .minimap')) return;
-  const w = toWorld(e.clientX, e.clientY);
-  palette.dataset.x = String(w.x);
-  palette.dataset.y = String(w.y);
-  palette.style.left = `${Math.min(e.clientX, window.innerWidth - 190)}px`;
-  palette.style.top = `${Math.min(e.clientY, window.innerHeight - 240)}px`;
-  palette.classList.add('is-on');
+  if (e.target.closest('.node, .dock, .empty, .minimap, .palette, .modal')) return;
+  if (e.shiftKey) {
+    const w = toWorld(e.clientX, e.clientY);
+    palette.dataset.x = String(w.x);
+    palette.dataset.y = String(w.y);
+    palette.style.left = `${Math.min(e.clientX, window.innerWidth - 190)}px`;
+    palette.style.top = `${Math.min(e.clientY, window.innerHeight - 240)}px`;
+    palette.classList.add('is-on');
+    return;
+  }
+  zoomAt(e.clientX, e.clientY, 1.5);
 });
 
 document.addEventListener('pointerdown', (e) => {
@@ -467,7 +528,37 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 
 /* ---------------- 节点内交互（事件委托） ---------------- */
+
+/* 双击节点：提示词框 → 放大编辑窗；有结果的预览区 → 开大图；其余位置 → 把这个节点放大到可读 */
+world.addEventListener('dblclick', (e) => {
+  const nodeEl = e.target.closest('.node');
+  if (!nodeEl) return;
+  const id = nodeEl.dataset.id;
+  if (e.target.closest('.n-prompt')) { e.preventDefault(); openPromptEditor(id); return; }
+  if (e.target.closest('textarea, input, select, button, .n-tools')) return;
+  const n = get().nodes.find((x) => x.id === id);
+  const src = n?.result?.local || n?.result?.url;
+  if (e.target.closest('.n-preview') && src) { openLightbox({ ...n.result, url: src }, n.title); return; }
+  zoomToNode(id, 420);
+});
+
+/* 点进提示词框：节点在屏幕上太窄（字糊成一团）时自动放大到可读尺寸；正常大小不打扰输入 */
+world.addEventListener('focusin', (e) => {
+  const ta = e.target.closest('.n-prompt');
+  if (!ta) return;
+  const nodeEl = ta.closest('.node');
+  if (!nodeEl) return;
+  const shownW = (nodeEl.offsetWidth || NODE_W) * view.k;
+  if (shownW < 300) setTimeout(() => zoomToNode(nodeEl.dataset.id, 420), 60);
+});
+
 world.addEventListener('click', (e) => {
+  const pzoom = e.target.closest('[data-pzoom]');
+  if (pzoom) {
+    openPromptEditor(pzoom.closest('.node').dataset.id);
+    return;
+  }
+
   const plus = e.target.closest('[data-plus]');
   if (plus) {
     openPlusMenu(plus.closest('.node').dataset.id, plus);
@@ -477,6 +568,27 @@ world.addEventListener('click', (e) => {
   const sw = e.target.closest('[data-settype]');
   if (sw) {
     switchNodeType(sw.closest('.node').dataset.id, sw.dataset.settype);
+    return;
+  }
+
+  // @ 引用 chip 上的 × ：移除这条引用（重新引用从「@」或「画布参考」再加）
+  const refdel = e.target.closest('[data-refdel]');
+  if (refdel) {
+    e.preventDefault();
+    e.stopPropagation();
+    const nid = refdel.closest('.node').dataset.id;
+    const idx = Number(refdel.dataset.refdel);
+    const nn = get().nodes.find((x) => x.id === nid);
+    if (!nn) return;
+    const name = (nn.refNames || [])[idx] || '';
+    const oldEl = nodeEls.get(nid);
+    if (oldEl) { oldEl.remove(); nodeEls.delete(nid); }   // 旧卡片带着被删的 chip，先拆掉让 render 重建
+    updateNode(nid, {
+      refImages: (nn.refImages || []).filter((_, i) => i !== idx),
+      refNames: (nn.refNames || []).filter((_, i) => i !== idx),
+    }, { history: false });
+    render();
+    toast(name ? `已移除引用 @${name}` : '已移除这条引用');
     return;
   }
 
@@ -502,21 +614,52 @@ world.addEventListener('click', (e) => {
   const exp = e.target.closest('[data-expand]');
   if (exp) {
     const nn2 = get().nodes.find((x) => x.id === exp.closest('.node').dataset.id);
-    if (nn2 && nn2.result && nn2.result.url) openLightbox(nn2.result, nn2.title);
+    const src2 = nn2?.result?.local || nn2?.result?.url;
+    if (src2) openLightbox({ ...nn2.result, url: src2 }, nn2.title);
     return;
   }
   const dl = e.target.closest('[data-dl]');
   if (dl) {
     const n = get().nodes.find((x) => x.id === dl.closest('.node').dataset.id);
-    if (!n?.result?.url) return;
-    // 走服务端代理：上游是带签名的 COS/TOS 链接，浏览器直连会跨域，而且 24 小时就失效
+    if (!n?.result) return;
     const a = document.createElement('a');
-    a.href = `api/download?url=${encodeURIComponent(n.result.url)}`;
+    if (n.result.local) {
+      // 已经转存到本机资产库：直接下载这个永久文件，不再依赖上游签名链接
+      a.href = n.result.local;
+      a.download = '';
+      toast('从本机资产库下载（永久地址，不会过期）');
+    } else if (n.result.url) {
+      // 走服务端代理：上游是带签名的 COS/TOS 链接，浏览器直连会跨域，而且 24 小时就失效
+      a.href = `api/download?url=${encodeURIComponent(n.result.url)}`;
+      toast('开始下载，同时会存一份到 data/output');
+    } else {
+      return;
+    }
     a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
     a.remove();
-    toast('开始下载，同时会存一份到 data/output');
+    return;
+  }
+
+  const dup = e.target.closest('[data-dup]');
+  if (dup) {
+    const src = get().nodes.find((n) => n.id === dup.closest('.node').dataset.id);
+    if (src) {
+      const spot = findFreeSpot(src.x + NODE_W + SPOT_GAP, src.y);
+      const copy = JSON.parse(JSON.stringify(src));
+      // 一定要丢掉旧 id：addNode 里 { id: uid(), ...node } 会把 node.id 覆盖回去，
+      // 两个节点同 id 就会在 nodeEls 里合并成一个 DOM（画布上少一张卡）
+      delete copy.id;
+      copy.x = spot.x;
+      copy.y = spot.y;
+      const node = addNode(copy);
+      sel.clear();
+      sel.add(node.id);
+      render();
+      centerOn(node.id);
+      toast('已复制节点');
+    }
     return;
   }
 
@@ -705,9 +848,27 @@ async function runNode(id) {
         t.progress = 100;
         t.result = result;
       }, 'done');
+
+      // 结果一出来就转存进资产库：上游链接 24 小时就过期，本地这份是永久的。
+      // 转存成功后把本地地址写进 result.local，预览/下载都走它，画布再也不会裂图。
+      if (!out.mock && result.url) {
+        cloud.recordResult({
+          nodeId: id,
+          nodeTitle: n.title,
+          kind: result.kind === 'video' ? 'video' : 'image',
+          prompt: (n.prompt || '').trim(),
+          params: { ratio: n.ratio, duration: n.duration, model },
+          url: result.url,
+        }).then((asset) => {
+          if (asset?.url) {
+            updateNode(id, { result: { ...result, local: asset.url, assetId: asset.id } }, { history: false });
+          }
+        }).catch(() => { /* 转存失败不影响本次结果展示 */ });
+      }
+
       toast(out.mock
         ? '模拟完成：链路通了，但没有调模型、没有花钱'
-        : `生成完成${out.elapsedMs ? `，耗时 ${Math.round(out.elapsedMs / 1000)} 秒` : ''}`);
+        : `生成完成${out.elapsedMs ? `，耗时 ${Math.round(out.elapsedMs / 1000)} 秒` : ''}${out.mock ? '' : '，已存入资产库'}`);
     } else {
       const msg = out.status === 'timeout'
         ? (out.message || '等待超时，任务可能还在排队')
@@ -750,7 +911,11 @@ function runAll() {
 }
 
 /* ---------------- 顶栏 / 按钮 ---------------- */
-$('#docName').addEventListener('change', (e) => setName(e.target.value.trim() || '未命名画布'));
+$('#docName').addEventListener('change', (e) => {
+  setName(e.target.value.trim() || '未命名画布');
+  cloud.renderCanvasBtn();
+});
+$('#btnCanvases')?.addEventListener('click', () => cloud.openCanvasPicker());
 
 $('#btnRunAll').addEventListener('click', runAll);
 
@@ -853,7 +1018,7 @@ function openApiModal() {
 
 $('#btnApi').addEventListener('click', openApiModal);
 
-$('#btnFitAll').addEventListener('click', () => fit());
+$('#btnFitAll').addEventListener('click', () => frameNodes());
 $('#btnUndo').addEventListener('click', () => { undo(); sel.clear(); render(); });
 $('#btnRedo').addEventListener('click', () => { redo(); sel.clear(); render(); });
 $('#btnZoomIn').addEventListener('click', () => zoomAt(innerWidth / 2, innerHeight / 2, 1.15));
@@ -901,14 +1066,14 @@ $('#btnTidy').addEventListener('click', () => {
   }, 'tidy');
   // 等一拍再适应：commit 之后节点 DOM 才按新坐标布局，这时读 offsetHeight 才准。
   // 用 setTimeout 而不是 requestAnimationFrame——后台标签页里 rAF 会被暂停，界面会停在没缩放的状态。
-  setTimeout(() => fit(), 80);
+  setTimeout(() => frameNodes(), 80);
   toast('已按数据流整理');
 });
 
 $('#btnPanel').addEventListener('click', () => {
   document.body.classList.toggle('panel-hidden');
   $('#panel').classList.toggle('is-hidden');
-  setTimeout(() => { fit(false); }, 240);
+  setTimeout(() => { frameNodes(); }, 240);
 });
 
 $('#toolSelect').addEventListener('click', () => { mode = 'select'; linkDrag = null; updateDock(); });
@@ -924,8 +1089,9 @@ $('#btnHelp').addEventListener('click', () => {
     <h3>快捷键</h3>
     <table>
       <tr><td>平移画布</td><td>空白处拖拽 / 中键拖拽 / <kbd>空格</kbd>+拖拽</td></tr>
-      <tr><td>缩放</td><td>滚轮 / 左下 <kbd>＋</kbd><kbd>−</kbd> / 点百分比归位</td></tr>
-      <tr><td>新建节点</td><td>双击空白处 / 底部工具条 / 空态快捷按钮</td></tr>
+      <tr><td>缩放</td><td>滚轮 / 左下 <kbd>＋</kbd><kbd>−</kbd> / 点百分比归位 / 双击空白放大</td></tr>
+      <tr><td>新建节点</td><td><kbd>Shift</kbd>+双击空白 / 底部工具条 / 空态快捷按钮</td></tr>
+      <tr><td>放大看内容</td><td>双击节点（有图开大图，没图放大该节点）；双击提示词框开大编辑窗</td></tr>
       <tr><td>连线</td><td>从右侧圆点拖到目标左侧圆点，或按 <kbd>L</kbd> 进连线模式</td></tr>
       <tr><td>多选</td><td><kbd>Shift</kbd>+点击 / <kbd>Shift</kbd>+拖拽框选</td></tr>
       <tr><td>删除</td><td>选中后 <kbd>Delete</kbd>；点连线可删连线</td></tr>
@@ -937,6 +1103,46 @@ $('#btnHelp').addEventListener('click', () => {
 $('#modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') $('#modal').classList.remove('is-on');
 });
+
+/* ---------------- 新建节点的落点：不叠在一起 ---------------- */
+const NODE_H_GUESS = 460;   // 生成卡片高度估算（预览区 224 + 参数区），只用于避让
+const SPOT_GAP = 28;        // 两个节点之间至少留这么多空隙
+
+function spotOverlaps(p, o) {
+  return Math.abs(p.x - o.x) < NODE_W + SPOT_GAP
+    && Math.abs(p.y - o.y) < NODE_H_GUESS + SPOT_GAP;
+}
+
+/**
+ * 从目标点开始找最近的一个空位。
+ * 候选按「离中心近的优先，且右侧/下方优先」排序，最多铺到第 4 圈；
+ * 全占满时退回斜向错开，保证任何情况下都不会和已有节点完全重合。
+ */
+function findFreeSpot(bx, by) {
+  const list = get().nodes;
+  if (!list.length) return { x: bx, y: by };
+
+  const stepX = NODE_W + SPOT_GAP;
+  const stepY = NODE_H_GUESS + SPOT_GAP;
+  const cands = [];
+  for (let ring = 1; ring <= 4; ring++) {
+    for (let i = -ring; i <= ring; i++) {
+      for (let j = -ring; j <= ring; j++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) !== ring) continue;
+        // 左边/上边加一点惩罚，让新节点优先落到右侧和下方
+        const score = Math.hypot(i, j) * (i < 0 ? 1.3 : 1) * (j < 0 ? 1.15 : 1);
+        cands.push({ i, j, score });
+      }
+    }
+  }
+  cands.sort((a, b) => a.score - b.score);
+
+  for (const c of cands) {
+    const p = { x: bx + c.i * stepX, y: by + c.j * stepY };
+    if (!list.some((o) => spotOverlaps(p, o))) return p;
+  }
+  return { x: bx + list.length * 56, y: by + list.length * 56 };
+}
 
 /* 快捷新建按钮（空态 + 底部工具条 + 双击菜单）
  * 直接绑在按钮上，不走 document 委托——画布会 setPointerCapture，
@@ -953,9 +1159,10 @@ function createFromButton(b) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     const r = stage.getBoundingClientRect();
     const c = toWorld(r.left + r.width / 2, r.top + r.height / 2);
-    const jitter = (get().nodes.length % 6) * 32;   // 连点几个不会叠成一摞
-    x = Math.round(c.x - NODE_W / 2 + jitter);
-    y = Math.round(c.y - 120 + jitter);
+    // 以视口中心为起点找最近的空位：已有节点占住的位置会自动让开
+    const spot = findFreeSpot(Math.round(c.x - NODE_W / 2), Math.round(c.y - 140));
+    x = spot.x;
+    y = spot.y;
   }
   const node = addNode(defaultNode(type, x, y));
   sel.clear();
@@ -998,26 +1205,71 @@ $('#nodeList').addEventListener('click', (e) => {
 $('#nodeSearch').addEventListener('input', renderPanel);
 $('#filterType').addEventListener('change', renderPanel);
 
-/* 面板 Tab 切换（素材/提示词先给空态，保持诚实） */
+/* 面板 Tab 切换：画布 / 资产库 / 生成历史 */
 document.querySelectorAll('.ptab').forEach((t) => {
   t.addEventListener('click', () => {
     document.querySelectorAll('.ptab').forEach((x) => x.classList.toggle('is-on', x === t));
     const k = t.dataset.ptab;
+    // 画布控件（筛选/搜索）只在「画布」tab 下有意义，其余 tab 收起来
+    const canvasCtl = k === 'nodes';
+    const prow = document.querySelector('.prow');
+    if (prow) prow.style.display = canvasCtl ? '' : 'none';
+    $('#nodeSearch').style.display = canvasCtl ? '' : 'none';
+
     if (k === 'assets') {
-      $('#nodeList').innerHTML = `<div class="pempty">素材库还没接：先把图片拖进节点，或点图片节点上传</div>`;
+      cloud.renderAssets($('#nodeList'));
     } else if (k === 'prompts') {
-      $('#nodeList').innerHTML = `<div class="pempty">提示词库还没接：写过的提示词会显示在这里</div>`;
+      cloud.renderHistory($('#nodeList'));
     } else {
       renderPanel();
     }
   });
 });
 
-/* 视图模式 segmented（工作流 / 故事板） */
+/* 视图模式 segmented（工作流 / 故事板）
+ * 故事板 = 按画布上从上到下的顺序横排成一条时间线，切回来还原原来的位置。
+ * 切换只改坐标、不进撤销栈（用 touch），免得撤销记录被视图操作污染。 */
+let boardSnap = null;
+
+function enterBoard() {
+  const list = get().nodes;
+  if (!list.length) { toast('画布上还没有节点，先加一个'); return false; }
+  if (boardSnap) return true;
+  boardSnap = list.map((n) => ({ id: n.id, x: n.x, y: n.y }));
+  const order = [...list].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  touch((s) => {
+    s.nodes.forEach((n) => {
+      const i = order.findIndex((o) => o.id === n.id);
+      n.x = Math.max(0, i) * (NODE_W + SPOT_GAP);
+      n.y = 0;
+    });
+  }, 'board');
+  render();
+  frameNodes();
+  toast('故事板：按顺序排成一行，拖一下就能调整先后');
+  return true;
+}
+
+function exitBoard() {
+  if (!boardSnap) return;
+  const snap = boardSnap;
+  boardSnap = null;
+  touch((s) => {
+    s.nodes.forEach((n) => {
+      const o = snap.find((x) => x.id === n.id);
+      if (o) { n.x = o.x; n.y = o.y; }
+    });
+  }, 'board');
+  render();
+  frameNodes();
+}
+
 document.querySelectorAll('.seg-btn').forEach((b) => {
   b.addEventListener('click', () => {
+    const toBoard = b.dataset.mode === 'board';
+    if (toBoard && !enterBoard()) return;         // 空画布不切
     document.querySelectorAll('.seg-btn').forEach((x) => x.classList.toggle('is-on', x === b));
-    if (b.dataset.mode === 'board') toast('故事板视图还在做，先用工作流视图');
+    if (!toBoard) exitBoard();
   });
 });
 
@@ -1058,13 +1310,35 @@ plusMenu.addEventListener('click', (e) => {
   const el = nodeEls.get(parent.id);
   const h = el?.offsetHeight ?? 260;
   const n = addNode(defaultNode(type, parent.x + NODE_W + 90, parent.y + Math.round(h / 2) - 120));
-  addEdge(parent.id, n.id);
+  connectNodes(parent.id, n.id);
 
   sel.clear(); sel.add(n.id);
   render();
   centerOn(n.id);
   focusPrompt(n.id);
 });
+
+/* ---------------- 连线：顺手把上游图片带进参考 ---------------- */
+
+/** 连线的同时，若上游是已出图的图片节点，自动塞进下游的参考图（公网 http 才有效）。
+ *  这样「拉了线」就等于「引用了这张图」，不用再手动 @ 一遍。 */
+function connectNodes(fromId, toId) {
+  if (!addEdge(fromId, toId)) return false;
+  const s = get();
+  const f = s.nodes.find((x) => x.id === fromId);
+  const t = s.nodes.find((x) => x.id === toId);
+  const url = f?.result?.url;
+  if (f && t && f.type === 'image' && url && /^https?:\/\//i.test(url)) {
+    const name = f.title || '上游图片';
+    const refImages = (t.refImages || []).includes(url) ? (t.refImages || []) : (t.refImages || []).concat([url]).slice(0, 9);
+    const refNames = (t.refNames || []).includes(name) ? (t.refNames || []) : (t.refNames || []).concat([name]).slice(0, 9);
+    updateNode(toId, { refImages, refNames }, { history: false });
+    toast('已连线，并自动带上上游图片做参考');
+    return true;
+  }
+  toast('已连线');
+  return true;
+}
 
 /* ---------------- 右键菜单 ---------------- */
 
@@ -1103,8 +1377,7 @@ ctx.addEventListener('click', (e) => {
   if (!b) return;
   const k = b.dataset.ctx;
   ctx.classList.remove('is-on');
-  if (k === 'image' || k === 'video') return openCreateModal(k, ctxWorld);
-  if (k === 'fit') return fit();
+  if (k === 'fit') return frameNodes();
   if (k === 'undo') { undo(); sel.clear(); render(); return; }
   if (k === 'redo') { redo(); sel.clear(); render(); return; }
   const node = addNode(defaultNode(k, Math.round(ctxWorld.x), Math.round(ctxWorld.y)));
@@ -1182,6 +1455,7 @@ function openCreateModal(kind, pos) {
 
 function openLightbox(result, title) {
   if (!result?.url) return;
+  $('#modalBox').classList.remove('is-wide');
   const isVideo = result.kind === 'video';
   $('#modalBox').innerHTML = `
     <h3>${escapeHtml(title || (isVideo ? '生成视频' : '生成图片'))}</h3>
@@ -1198,8 +1472,53 @@ function openLightbox(result, title) {
   $('#lbClose').onclick = () => $('#modal').classList.remove('is-on');
 }
 
-/** 新建完直接能打字：把光标放进提示词框 */
-function focusPrompt(id) {
+/** 放大编辑提示词：节点小框里改长句太挤、字还容易被挡住，这里给一个大窗。
+ *  保存后写回节点（进撤销栈），同时把卡片上的 textarea 同步成新值。 */
+function openPromptEditor(nodeId) {
+  const n = get().nodes.find((x) => x.id === nodeId);
+  if (!n) return;
+  $('#modalBox').innerHTML = `
+    <h3>${escapeHtml(n.title || '节点')} · 提示词</h3>
+    <div class="cfg-sub">大窗编辑，保存后写回节点并进撤销栈。<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 保存，<kbd>Esc</kbd> 关闭。</div>
+    <textarea class="pe-area" id="peArea" spellcheck="false"></textarea>
+    <div class="pe-meta"><span id="peCount"></span><span>${escapeHtml(n.model || '')}　${escapeHtml(n.ratio || '')}</span></div>
+    <div class="cfg-actions">
+      <button class="btn" id="peCancel">取消</button>
+      <button class="btn btn-primary" id="peSave">保存并写回</button>
+    </div>`;
+  const area = $('#peArea');
+  area.value = n.prompt || '';
+  const recount = () => { $('#peCount').textContent = `${area.value.length} 字`; };
+  recount();
+  area.addEventListener('input', recount);
+  $('#modalBox').classList.add('is-wide');
+  $('#modal').classList.add('is-on');
+  setTimeout(() => {
+    area.focus();
+    const L = area.value.length;
+    area.setSelectionRange(L, L);
+  }, 40);
+  const close = () => {
+    $('#modal').classList.remove('is-on');
+    $('#modalBox').classList.remove('is-wide');
+  };
+  const save = () => {
+    const v = area.value;
+    updateNode(nodeId, { prompt: v });
+    const dom = nodeEls.get(nodeId)?.querySelector('textarea[data-f="prompt"]');
+    if (dom) dom.value = v;
+    close();
+    toast('提示词已更新');
+  };
+  $('#peSave').onclick = save;
+  $('#peCancel').onclick = close;
+  area.onkeydown = (ev) => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); save(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+  };
+}
+
+/** 新建完直接能打字：把光标放进提示词框 */function focusPrompt(id) {
   setTimeout(() => {
     const ta = nodeEls.get(id)?.querySelector('textarea[data-f="prompt"]');
     ta?.focus();
@@ -1216,6 +1535,11 @@ function switchNodeType(id, type) {
   commit((s) => {
     const t = s.nodes.find((x) => x.id === id);
     if (!t) return;
+    // 先把当前结果按「当前类型」各自存一份，切回来时还能看到，而不是一律清空
+    if (t.result) {
+      if (t.type === 'image') t.imageResult = t.result;
+      else t.videoResult = t.result;
+    }
     t.type = type;
     t.title = TYPES[type].label;
     // 切换类型后默认模型用「接 API」里配置的那个，而不是列表第一个
@@ -1229,9 +1553,11 @@ function switchNodeType(id, type) {
       t.ratio = t.ratio || '9:16';
       t.duration = 15;
     }
-    t.status = 'idle';
-    t.progress = 0;
-    t.result = null;
+    // 按新类型恢复它自己那份结果；没有就保持空
+    const keep = (type === 'image' ? t.imageResult : t.videoResult) || null;
+    t.result = keep;
+    t.status = keep ? 'done' : 'idle';
+    t.progress = keep ? 100 : 0;
     t.error = '';
   }, 'type');
   render();
@@ -1308,16 +1634,67 @@ function handleChip(kind, id, btn) {
     return;
   }
 
+  if (kind === 'skill') { openSkillMenu(id); return; }
+
   if (kind === 'mark') { toast('已标记此节点'); return; }
+}
+
+/* ---------------- 技能预设：⚡ 技能 ---------------- */
+
+function applySkill(id, skillId) {
+  const n = get().nodes.find((x) => x.id === id);
+  const s = SKILLS.find((x) => x.id === skillId);
+  if (!n || !s) return;
+  const patch = { prompt: s.prompt, style: '' };
+  if (s.ratio) patch.ratio = s.ratio;
+  if (s.duration) patch.duration = s.duration;
+  if (s.type && s.type !== n.type) patch.type = s.type;
+  updateNode(id, patch, { history: false });
+  document.getElementById('modal').classList.remove('is-on');
+  render();
+  const ta = nodeEls.get(id) && nodeEls.get(id).querySelector('[data-f="prompt"]');
+  if (ta) ta.value = s.prompt;
+  const have = (n.refImages || []).length + (n.uploadImage ? 1 : 0);
+  if (s.needRefs && have < s.needRefs) {
+    toast(`已套用「${s.name}」，还差 ${s.needRefs - have} 张参考图 —— 提示词里打 @ 引用，或点「画布参考」`);
+    return;
+  }
+  toast(`已套用技能「${s.name}」，参数已填好，点运行生成`);
+}
+
+function openSkillMenu(id) {
+  const n = get().nodes.find((x) => x.id === id);
+  if (!n) return;
+  const list = SKILLS.filter((s) => !s.type || s.type === n.type);
+  if (!list.length) { toast('这个节点还没有可用技能'); return; }
+  const el = document.getElementById('modalBox');
+  el.innerHTML =
+    '<h3>⚡ 技能</h3>' +
+    '<div class="cfg-sub">选一个技能，自动把提示词、比例、时长填好（不会直接花钱，填完自己点运行）。</div>' +
+    list.map((s) =>
+      '<button class="cfg-pick" data-skill="' + s.id + '" style="justify-content:flex-start;text-align:left;gap:10px">' +
+      '<span style="font-size:20px;line-height:1">' + s.icon + '</span>' +
+      '<span style="display:flex;flex-direction:column;gap:2px">' +
+      '<b style="font-size:13px">' + escapeHtml(s.name) + '</b>' +
+      '<span style="font-size:11px;color:var(--text-2)">' + escapeHtml(s.note || '') + '</span>' +
+      '</span></button>').join('') +
+    '<div class="cfg-actions"><button class="btn" id="skCancel">取消</button></div>';
+  document.getElementById('modal').classList.add('is-on');
+  el.querySelectorAll('[data-skill]').forEach((b) => {
+    b.onclick = () => applySkill(id, b.dataset.skill);
+  });
+  const cancel = document.getElementById('skCancel');
+  if (cancel) cancel.onclick = () => document.getElementById('modal').classList.remove('is-on');
 }
 
 /* 点击卡片预览区 → 大窗查看（图片/视频） */
 world.addEventListener('click', (e) => {
-  if (e.target.closest('.n-run, .n-del, .n-switch, [data-dl], [data-del], [data-chip], [data-try], [data-expand], [data-plus], [data-settype]')) return;
+  if (e.target.closest('.n-run, .n-del, .n-switch, [data-dl], [data-del], [data-dup], [data-chip], [data-try], [data-expand], [data-plus], [data-settype]')) return;
   const pv = e.target.closest('.n-preview');
   if (!pv) return;
   const n = get().nodes.find((x) => x.id === pv.closest('.node').dataset.id);
-  if (n && n.result && n.result.url) openLightbox(n.result, n.title);
+  const src = n?.result?.local || n?.result?.url;
+  if (src) openLightbox({ ...n.result, url: src }, n.title);
 });
 
 /* ---------------- 粘贴：剪贴板图片直接变节点 ---------------- */
@@ -1399,10 +1776,12 @@ refMenu.addEventListener('click', (e) => {
   n.prompt = ta.value;
   // 挂为参考图（去重，上限 9 张）
   const list = (n.refImages || []).includes(url) ? n.refImages : (n.refImages || []).concat([url]).slice(0, 9);
-  updateNode(nodeId, { refImages: list, refNames: (n.refNames || []).concat([name]).slice(0, 9) }, { history: false });
+  const names = (n.refNames || []).includes(name) ? (n.refNames || []) : (n.refNames || []).concat([name]).slice(0, 9);
+  updateNode(nodeId, { refImages: list, refNames: names }, { history: false });
+  render();   // updateNode 只改数据，卡片要重画才会出现 @chip
   refMenu.classList.remove('is-on');
   ta.focus();
-  toast('已引用：' + name);
+  toast(`已引用 @${name} · 共 ${list.length} 张参考图`);
 });
 
 document.addEventListener('pointerdown', (e) => {
@@ -1426,7 +1805,7 @@ document.addEventListener('keydown', (e) => {
     sel.clear(); render();
   }
   if (e.key === 'Escape') { palette.classList.remove('is-on'); sel.clear(); render(); }
-  if (e.key.toLowerCase() === 'f') fit();
+  if (e.key.toLowerCase() === 'f') frameNodes();
   if (e.key.toLowerCase() === 'l') $('#toolLink').click();
   if (e.key === ' ') { e.preventDefault(); }
 });
@@ -1477,12 +1856,91 @@ subscribe((_state, reason) => {
   render();
 });
 
+/* ---------------- 资产库 / 生成历史 ↔ 画布 ---------------- */
+
+/** 素材铺到当前视口中心，带上永久本地地址 */
+window.addEventListener('canvas:place-asset', (e) => {
+  const a = e.detail?.asset;
+  if (!a) return;
+  if (a.kind === 'audio') { toast('音频素材放到画布还没做，先在资产库里试听'); return; }
+
+  const r = stage.getBoundingClientRect();
+  const k = Number.isFinite(view.k) && view.k > 0 ? view.k : 1;
+  const wx = Math.round((-view.x + r.width / 2) / k - NODE_W / 2);
+  const wy = Math.round((-view.y + r.height / 2) / k - 160);
+
+  const type = a.kind === 'video' ? 'video' : 'image';
+  const n = addNode({
+    ...defaultNode(type, wx, wy),
+    title: a.name || '素材',
+    prompt: a.prompt || '',
+    status: 'done',
+    progress: 100,
+    result: { kind: a.kind || 'image', url: a.sourceUrl || '', local: a.url, assetId: a.id },
+  });
+  sel.clear();
+  sel.add(n.id);
+  render();
+  centerOn(n.id);
+  toast('素材已放到画布（本地永久地址）');
+});
+
+/** 从生成历史定位到节点 */
+window.addEventListener('canvas:focus-node', (e) => {
+  const id = e.detail?.id;
+  if (!id) return;
+  const n = get().nodes.find((x) => x.id === id);
+  if (!n) { toast('这个节点已经删了，可用历史里的「＋」把结果重新放到画布'); return; }
+  sel.clear();
+  sel.add(id);
+  render();
+  centerOn(id);
+});
+
+/** 切换画布后重绘 */
+window.addEventListener('canvas:reload', () => {
+  $('#docName').value = get().name;
+  sel.clear();
+  render();
+  applyView();
+  cloud.renderCanvasBtn();
+  if (get().nodes.length) setTimeout(() => frameNodes(), 30);
+});
+
 /* ---------------- 启动 ---------------- */
 $('#docName').value = get().name;
 loadServerStatus();
 render();
 applyView();
-if (get().nodes.length) setTimeout(() => fit(), 60);
+if (get().nodes.length) setTimeout(() => frameNodes(), 60);
+
+// 连后端画布：打开上次用的那个；首次运行把浏览器里已有的画布整份迁到服务端。
+// 失败也不拦着用 —— localStorage 还在，只是这一轮不会同步。
+cloud.boot()
+  .then(() => {
+    $('#docName').value = get().name;
+    render();
+    applyView();
+    if (get().nodes.length) setTimeout(() => frameNodes(), 60);
+  })
+  .catch((e) => {
+    console.warn('[canvas] 画布后端没连上，先用本地缓存：', e);
+    // 后端失败时也要把本地缓存画出来，否则一进画布是空白，看着像数据丢了
+    $('#docName').value = get().name;
+    render();
+    applyView();
+    if (get().nodes.length) setTimeout(() => frameNodes(), 60);
+  });
+
+// 兜底：后端慢或保存抖动时，首屏可能来不及画，800ms 后补一次重绘
+setTimeout(() => {
+  if (!document.querySelector('.node') && get().nodes.length) {
+    $('#docName').value = get().name;
+    render();
+    applyView();
+    frameNodes();
+  }
+}, 800);
 
 document.getElementById('boot')?.remove();
 window.addEventListener('beforeunload', saveNow);

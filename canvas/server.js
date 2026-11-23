@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { extname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import storeRouter from './routes-store.js';
 
 // ============================================================
 // 无限画布 · 服务端
@@ -35,6 +36,10 @@ const SAVED = readSaved();
 
 const CFG = {
   baseUrl: (process.env.AUTODL_BASE_URL || 'https://autodl.art').replace(/\/+$/, ''),
+  // 图片走 OpenAI 兼容网关（New API），域名与 ComfyUI 视频不是同一个，必须带 www：
+  //   https://www.autodl.art/api/v1/images/generations（文生图）
+  //   https://www.autodl.art/api/v1/images/edits（图生图 / 参考图编辑）
+  imageBaseUrl: (SAVED.imageBaseUrl || process.env.AUTODL_IMAGE_BASE_URL || 'https://www.autodl.art').replace(/\/+$/, ''),
   // 视频走 ComfyUI 分组令牌；图片走 LLM 分组令牌（/api/v1/images/generations）
   token: SAVED.token || process.env.AUTODL_TOKEN || '',
   llmToken: SAVED.llmToken || process.env.AUTODL_LLM_TOKEN || '',
@@ -55,10 +60,10 @@ app.use(express.json({ limit: '16mb' }));
 
 /* ---------------- 底层：调 AutoDL ---------------- */
 
-async function cfFetch(method, path, body, token = CFG.token) {
-  const url = `${CFG.baseUrl}${path}`;
+async function cfFetch(method, path, body, token = CFG.token, base = CFG.baseUrl, timeoutMs = 40000) {
+  const url = `${base}${path}`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 40000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(url, {
@@ -71,7 +76,7 @@ async function cfFetch(method, path, body, token = CFG.token) {
       signal: ctrl.signal,
     });
   } catch (e) {
-    throw new Error(`连不上 ${CFG.baseUrl}：${e.name === 'AbortError' ? '超时' : e.message}`);
+    throw new Error(`连不上 ${base}：${e.name === 'AbortError' ? '超时' : e.message}`);
   } finally {
     clearTimeout(timer);
   }
@@ -82,9 +87,12 @@ async function cfFetch(method, path, body, token = CFG.token) {
 
   if (!res.ok) {
     const msg = json?.error?.message || json?.message || text.slice(0, 200) || `HTTP ${res.status}`;
-    const hint = res.status === 401 || res.status === 403 || /permission|unauthor/i.test(msg)
-      ? '（令牌分组不对：AutoDL 令牌管理里新建令牌，分组要选 ComfyUI）'
-      : '';
+    let hint = '';
+    if (/insufficient|balance|余额|quota|credit/i.test(msg)) {
+      hint = '（账户余额不足，请到 AutoDL 控制台充值后重试）';
+    } else if (res.status === 401 || /permission|unauthor|invalid.*token/i.test(msg)) {
+      hint = '（令牌分组不对：AutoDL 令牌管理里新建令牌，分组要选 ComfyUI）';
+    }
     const err = new Error(`${msg}${hint}`);
     err.status = res.status;
     throw err;
@@ -174,13 +182,15 @@ app.post('/api/config', async (req, res) => {
   permCache = null;                    // 令牌换了，权限结果必须重新问
   imgModelCache = null;                // 图片令牌换了，模型列表也要重拉
   const perm = await probePermission();
+  await listImageModels();             // 令牌换了立刻真探一次，保存完就能看出真假
   res.json({
     ok: true,
     configured: Boolean(CFG.token),
     tokenMasked: CFG.token ? `${CFG.token.slice(0, 4)}…${CFG.token.slice(-4)}` : '',
     permission: { ok: perm.ok, reason: perm.reason || null, message: perm.message || '' },
     imageTokenMasked: CFG.llmToken ? `${CFG.llmToken.slice(0, 4)}…${CFG.llmToken.slice(-4)}` : '',
-    imageReady: Boolean(CFG.llmToken),
+    imageReady: Boolean(CFG.llmToken) && Boolean(CFG.imageModel) && !imgModelError,
+    imageErr: imgModelError,
     imageModel: CFG.imageModel,
     workflows: { text2video: CFG.workflowText2Video, refVideo: CFG.workflowRefVideo },
     ready: Boolean(CFG.token) && !CFG.forceMock && perm.ok,
@@ -189,6 +199,7 @@ app.post('/api/config', async (req, res) => {
 
 // 图片模型列表：直接问 /api/v1/models 里带 image 的那些，别在前端写死
 let imgModelCache = null;
+let imgModelError = '';
 async function listImageModels() {
   if (imgModelCache && Date.now() - imgModelCache.at < 300000) return imgModelCache.list;
   const fallback = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'Qwen-Image', 'Z-Image-Turbo'];
@@ -197,13 +208,18 @@ async function listImageModels() {
     return fallback;
   }
   try {
-    const out = await cfFetch('GET', '/api/v1/models', null, CFG.llmToken);
+    const out = await cfFetch('GET', '/api/v1/models', null, CFG.llmToken, CFG.imageBaseUrl);
     const ids = (out?.data ?? []).map((m) => m.id).filter((id) => /image/i.test(id));
     const list = ids.length ? ids : fallback;
+    imgModelError = '';
     imgModelCache = { list, at: Date.now() };
     return list;
-  } catch {
-    imgModelCache = { list: fallback, at: Date.now() };
+  } catch (err) {
+    // 令牌缺分组 / 被吊销时 models 接口直接 401。这个错误必须留在状态里，
+    // 否则「配了令牌」会被当成「能出图」，用户点生成才炸。
+    // 通用文案是按视频分组写的，图片这条要换成 LLM 分组，别指错方向。
+    imgModelError = String(err?.message ?? err ?? '').slice(0, 120).replace(/ComfyUI/g, 'LLM') || '图片令牌无效';
+    imgModelCache = { list: fallback, at: Date.now() - 270000 };  // 失败只缓存 30 秒，换完令牌能马上重试
     return fallback;
   }
 }
@@ -214,14 +230,14 @@ async function cfFetchForm(path, fd) {
   const timer = setTimeout(() => ctrl.abort(), 600000);
   let res;
   try {
-    res = await fetch(`${CFG.baseUrl}${path}`, {
+    res = await fetch(`${CFG.imageBaseUrl}${path}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${CFG.llmToken}` },
       body: fd,
       signal: ctrl.signal,
     });
   } catch (e) {
-    throw new Error(`连不上 ${CFG.baseUrl}：${e.name === 'AbortError' ? '超时' : e.message}`);
+    throw new Error(`连不上 ${CFG.imageBaseUrl}：${e.name === 'AbortError' ? '超时' : e.message}`);
   } finally {
     clearTimeout(timer);
   }
@@ -262,8 +278,18 @@ async function editImage({ prompt, refImage, model }) {
   fd.append('model', model || CFG.imageModel);
   fd.append('prompt', String(prompt).slice(0, 3000));
   fd.append('image', new Blob([buf], { type: mime }), 'reference.png');
+  // 要公网 URL：云端视频工作流只能下载 http(s)，b64 转出来的 dataURL 它够不到
+  fd.append('response_format', 'url');
 
-  const out = await cfFetchForm('/api/v1/images/edits', fd);
+  let out;
+  try {
+    out = await cfFetchForm('/api/v1/images/edits', fd);
+  } catch (e) {
+    if (/response_format|unknown|invalid|unrecognized|不存在|无效/i.test(e.message)) {
+      fd.delete('response_format');
+      out = await cfFetchForm('/api/v1/images/edits', fd);
+    } else throw e;
+  }
   const item = out?.data?.[0];
   if (!item) throw new Error(`上游没有返回图片：${JSON.stringify(out).slice(0, 160)}`);
   const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
@@ -277,12 +303,23 @@ async function generateImage({ prompt, ratio, model }) {
   if (!CFG.llmToken) throw new Error('没有配置图片令牌（AUTODL_LLM_TOKEN，LLM 分组）');
   const size = ratio === '1:1' ? '1024x1024' : ratio === '16:9' ? '1536x1024' : '1024x1536';
   const useModel = model || CFG.imageModel;
-  const out = await cfFetch('POST', '/api/v1/images/generations', {
+  const base = {
     model: useModel,
     prompt: String(prompt).slice(0, 3000),
     size,
     n: 1,
-  }, CFG.llmToken);
+  };
+  // 关键：要公网 URL。否则上游只回 b64_json，我们转成 dataURL，
+  // 云端视频工作流下载不到它 → 资产引用/连线引用全部失效。
+  let out;
+  try {
+    out = await cfFetch('POST', '/api/v1/images/generations',
+      { ...base, response_format: 'url' }, CFG.llmToken, CFG.imageBaseUrl, 300000);
+  } catch (e) {
+    if (/response_format|unknown|invalid|unrecognized|不存在|无效/i.test(e.message)) {
+      out = await cfFetch('POST', '/api/v1/images/generations', base, CFG.llmToken, CFG.imageBaseUrl, 300000);
+    } else throw e;
+  }
   const item = out?.data?.[0];
   if (!item) throw new Error(`上游没有返回图片：${JSON.stringify(out).slice(0, 160)}`);
   const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
@@ -303,7 +340,8 @@ app.get('/api/status', async (req, res) => {
       { id: CFG.workflowText2Video, label: '文生视频（无参考图）' },
       { id: CFG.workflowRefVideo, label: '图生视频（多图多音频）' },
     ],
-    imageReady: Boolean(CFG.llmToken),
+    imageReady: Boolean(CFG.llmToken) && Boolean(CFG.imageModel) && !imgModelError,
+    imageErr: imgModelError,
     baseUrl: CFG.baseUrl,
     forceMock: CFG.forceMock,
     permission: { ok: perm.ok, reason: perm.reason || null, message: perm.message || '' },
@@ -426,7 +464,19 @@ app.post('/api/generate', async (req, res) => {
       return res.json({ taskId: `mock_${Date.now().toString(36)}`, mock: true, reason: '没有配置 ComfyUI 令牌' });
     }
 
-    const hasRefs = Array.isArray(refImages) && refImages.length > 0;
+    const refImagesIn = Array.isArray(refImages) ? refImages : [];
+    const httpRefs = refImagesIn.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u));
+    const badRefs = refImagesIn.length - httpRefs.length;
+    const hasRefs = httpRefs.length > 0;
+
+    // 有参考图但全是本地图（dataURL / 本地路径）：云端下载不到。
+    // 直接报清楚，别静默退回文生视频——那会让人以为「引用生效了其实没用上」。
+    if (badRefs > 0 && httpRefs.length === 0) {
+      return res.status(400).json({
+        error: `参考图 ${badRefs} 张是本地图片（base64 或本地路径），云端工作流无法下载。请重新生成该图片（新版图片会返回公网链接），或改用公网图片 URL 引用。`,
+        badRefs,
+      });
+    }
     const picked = typeof req.body.model === 'string' && req.body.model.trim() ? req.body.model.trim() : '';
 
     // 关键：文生视频工作流不接收 images 参数，传了也会被丢掉。
@@ -441,7 +491,7 @@ app.post('/api/generate', async (req, res) => {
     // 先问这个工作流要哪些参数，再按真实字段名组装
     const rules = await getWorkflowSpec(workflowId);
     const body = buildWorkflowBody(rules, {
-      prompt, refImages, refAudios,
+      prompt, refImages: httpRefs, refAudios,
       duration, resolution: resolution || CFG.resolution,
     });
 
@@ -466,8 +516,13 @@ app.post('/api/generate', async (req, res) => {
       switchedToRef: switched,
     });
   } catch (e) {
-    const code = e.status === 403 || e.status === 401 ? 403 : 502;
-    res.status(code).json({ error: e.message, needComfyuiToken: code === 403 });
+    const insufficient = /insufficient|balance|余额|quota|credit/i.test(e.message);
+    const code = insufficient ? 402 : (e.status === 401 ? 401 : (e.status === 403 ? 403 : 502));
+    res.status(code).json({
+      error: e.message,
+      insufficientBalance: insufficient,
+      needComfyuiToken: !insufficient && (e.status === 401 || e.status === 403),
+    });
   }
 });
 
@@ -582,6 +637,9 @@ app.post('/api/upload', (req, res) => {
 });
 
 app.use('/uploads', express.static(join(DATA_DIR, 'uploads')));
+
+// 画布持久化 / 资产库 / 生成历史（storage.js + routes-store.js）
+app.use(storeRouter);
 
 app.use(express.static(join(__dirname, 'public'), {
   etag: false,

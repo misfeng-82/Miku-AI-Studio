@@ -13,12 +13,14 @@ import * as system from './views/system.js';
 import * as deai from './views/deai.js';
 import * as novel from './views/novel.js';
 import * as canvas from './views/canvas.js';
+import * as comic from './views/comic.js?v=20261122e';
 
 /* ================= 侧栏注册表（单一事实来源） ================= */
 const SIDEBAR = [
     { group: '创作入口', items: [
       { id: 'home', name: '首页', icon: 'home' },
       { id: 'canvas', name: '无限画布', icon: 'grid', hot: true },
+      { id: 'comic', name: '漫剧工作台', icon: 'grid', hot: true },
       { id: 'model', name: '接入模型', icon: 'cpu' },
     ]},
   { group: '爆款情报', items: [
@@ -61,6 +63,7 @@ const nameOf = (id) => ALL_ITEMS.find((i) => i.id === id)?.name ?? '首页';
 /* ================= PAGES 分发 ================= */
 const PAGES = {
   canvas: canvas.viewCanvas,
+  comic: comic.viewComic,
   home: system.viewHome,
   model: system.viewModelSetup,
   engine: system.viewEngine,
@@ -107,6 +110,7 @@ const RUNNERS = {
   ...deai.runners,
   ...novel.runners,
   ...system.runners,
+  ...comic.runners,
 };
 
 /* ================= 二进制导出（PDF / ZIP） =================
@@ -276,6 +280,8 @@ function render() {
   const content = $('#content');
   try { content.innerHTML = (PAGES[state.view] ?? system.viewHome)(); }
   catch (e) { content.innerHTML = `<div class="card"><div class="notice notice-err">${ICONS.alert}<div>页面渲染出错：${esc(e.message)}</div></div></div>`; console.error(e); }
+  // 漫剧工作台：把上次刷新/切页时没跑完的出片任务接回来（内部自己去重，没 pending 就是空转）
+  if (state.view === 'comic') setTimeout(() => { try { comic.resumePending?.(); } catch { /* 接不回来不影响页面 */ } }, 0);
 }
 setRender(render);
 
@@ -327,6 +333,9 @@ async function openApiModal() {
   $('#amMax').value = apiDraft.maxTokens;
   $('#amTimeout').value = apiDraft.timeout;
   $('#amEnabled').checked = apiDraft.enabled;
+  setSecState('#asLlm', isLiveLLM() ? '已接入' : '未接入', isLiveLLM() ? 'ok' : 'off');
+  // 图片 / 视频两路读的是画布子服务；读不到不影响文本这一段能不能用
+  loadCanvasCfg();
 }
 
 function collectApiForm() {
@@ -356,8 +365,9 @@ async function saveApiSettings() {
   });
   try { state.meta = await api.meta(); } catch { /* 元信息拉不到不影响保存 */ }
   render();
-  $('#apiModal').hidden = true;
-  toast('已保存到你自己的浏览器（不会上传，也不会占用别人的额度）');
+  // 弹窗不关：三段各自保存，关了会把另外两段正在填的内容吞掉
+  setSecState('#asLlm', isLiveLLM() ? '已接入' : '未接入', isLiveLLM() ? 'ok' : 'off');
+  toast('文本模型已保存到你的浏览器（不会上传，也不占别人的额度）');
 }
 
 async function pullModels() {
@@ -391,6 +401,114 @@ async function testApiSettings() {
   } finally { btn.disabled = false; }
 }
 
+/* ---- 图片 / 视频：走 canvas 子服务的配置，经主服务 /canvas/api/* 同源代理 ---- */
+/* 为什么不放浏览器：这两路的令牌是「AutoDL Art」的，出图出片是 canvas 进程在调，
+ * 令牌只存在本机 canvas/data/config.json 里才有用；放 localStorage 反而看不见也用不上。 */
+function setSecState(id, text, kind) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `api-sec-state${kind ? ` is-${kind}` : ''}`;
+}
+
+async function loadCanvasCfg() {
+  $('#aiBase').value = 'https://autodl.art';
+  $('#avBase').value = 'https://autodl.art';
+  $('#aiStatus').textContent = '读取中…';
+  $('#avStatus').textContent = '读取中…';
+  try {
+    const s = await api.get('/canvas/api/status');
+    if (!s || typeof s !== 'object') throw new Error('画布子服务没起来，重启平台再试');
+    $('#aiBase').value = s.baseUrl || 'https://autodl.art';
+    $('#avBase').value = s.baseUrl || 'https://autodl.art';
+    $('#aiModel').value = s.imageModel || '';
+    $('#aiModelList').innerHTML = (s.imageModels ?? []).map((m) => `<option value="${esc(m)}"></option>`).join('');
+    $('#avT2V').value = s.workflows?.text2video ?? '';
+    $('#avRef').value = s.workflows?.refVideo ?? '';
+    $('#avRes').value = s.defaults?.resolution ?? '';
+    $('#avDur').value = s.defaults?.duration ?? 15;
+    $('#aiToken').placeholder = s.imageTokenMasked ? `已存 ${s.imageTokenMasked}（留空不改）` : 'AutoDL「LLM」分组令牌';
+    $('#avToken').placeholder = s.tokenMasked ? `已存 ${s.tokenMasked}（留空不改）` : 'AutoDL「ComfyUI」分组令牌';
+
+    if (s.imageReady) {
+      setSecState('#asImg', '令牌已配', 'ok');
+      $('#aiStatus').innerHTML = '<span style="color:var(--teal)">✓ 图片令牌已配，可出图</span>';
+    } else {
+      setSecState('#asImg', '未配置', 'off');
+      $('#aiStatus').textContent = '还没填图片令牌';
+    }
+    if (s.configured) {
+      const ok = Boolean(s.permission?.ok);
+      setSecState('#asVid', ok ? '可用' : '权限异常', ok ? 'ok' : 'warn');
+      $('#avStatus').innerHTML = ok
+        ? '<span style="color:var(--teal)">✓ ComfyUI 分组权限通过</span>'
+        : `<span style="color:var(--amber)">${esc(s.permission?.message || '令牌分组可能不对')}</span>`;
+    } else {
+      setSecState('#asVid', '未配置', 'off');
+      $('#avStatus').textContent = '还没填视频令牌';
+    }
+  } catch (e) {
+    // 画布子服务没起来是常见状态（不阻断文本模型使用），说清原因即可
+    const msg = `<span style="color:var(--red)">读不到画布服务：${esc(e.message)}</span>`;
+    $('#aiStatus').innerHTML = msg;
+    $('#avStatus').innerHTML = msg;
+    setSecState('#asImg', '读取失败', 'warn');
+    setSecState('#asVid', '读取失败', 'warn');
+  }
+}
+
+async function saveImageCfg() {
+  const btn = $('#aiSave');
+  btn.disabled = true;
+  $('#aiStatus').textContent = '保存并探测中…（要问一次上游权限，最多十几秒）';
+  try {
+    const body = { imageModel: $('#aiModel').value.trim() };
+    const tok = $('#aiToken').value.trim();
+    if (tok) body.llmToken = tok;
+    const r = await api.post('/canvas/api/config', body);
+    if (!r || typeof r !== 'object') throw new Error('画布子服务没起来，重启平台再试');
+    $('#aiToken').value = '';
+    $('#aiToken').placeholder = r.imageTokenMasked ? `已存 ${r.imageTokenMasked}（留空不改）` : 'AutoDL「LLM」分组令牌';
+    setSecState('#asImg', r.imageReady ? '令牌已配' : '未配置', r.imageReady ? 'ok' : 'off');
+    $('#aiStatus').innerHTML = `<span style="color:var(--teal)">✓ 已存到本机画布配置${r.imageReady ? '，图片令牌就绪' : '（令牌为空）'}</span>`;
+    toast('图片 API 已保存');
+  } catch (e) {
+    $('#aiStatus').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+    toast('保存失败：' + e.message, 'err');
+  } finally { btn.disabled = false; }
+}
+
+async function saveVideoCfg() {
+  const btn = $('#avSave');
+  btn.disabled = true;
+  $('#avStatus').textContent = '保存并探测中…（要问一次上游权限，最多十几秒）';
+  try {
+    const body = {
+      workflowText2Video: $('#avT2V').value.trim(),
+      workflowRefVideo: $('#avRef').value.trim(),
+      resolution: $('#avRes').value.trim(),
+      duration: Number($('#avDur').value) || 15,
+    };
+    const tok = $('#avToken').value.trim();
+    if (tok) body.token = tok;
+    const r = await api.post('/canvas/api/config', body);
+    if (!r || typeof r !== 'object') throw new Error('画布子服务没起来，重启平台再试');
+    $('#avToken').value = '';
+    $('#avToken').placeholder = r.tokenMasked ? `已存 ${r.tokenMasked}（留空不改）` : 'AutoDL「ComfyUI」分组令牌';
+    const ok = Boolean(r.permission?.ok);
+    setSecState('#asVid', r.configured ? (ok ? '可用' : '权限异常') : '未配置', r.configured ? (ok ? 'ok' : 'warn') : 'off');
+    $('#avStatus').innerHTML = r.configured
+      ? (ok
+        ? `<span style="color:var(--teal)">✓ 已保存，ComfyUI 分组权限通过（${esc(r.tokenMasked || '')}）</span>`
+        : `<span style="color:var(--amber)">已保存，但权限没过：${esc(r.permission?.message || '令牌分组要选 ComfyUI')}</span>`)
+      : '<span style="color:var(--amber)">已保存，但令牌为空</span>';
+    toast(ok ? '视频 API 已保存并验证通过' : '视频 API 已保存（权限未通过）', ok ? 'ok' : 'warn');
+  } catch (e) {
+    $('#avStatus').innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+    toast('保存失败：' + e.message, 'err');
+  } finally { btn.disabled = false; }
+}
+
 $('#btnApi').addEventListener('click', openApiModal);
 $('#amClose').addEventListener('click', () => { $('#apiModal').hidden = true; });
 $('#apiModal').addEventListener('click', (e) => { if (e.target.id === 'apiModal') $('#apiModal').hidden = true; });
@@ -410,6 +528,9 @@ $('#amClear').addEventListener('click', async () => {
   } catch (e) { toast(e.message, 'err'); }
 });
 $('#amModels').addEventListener('click', pullModels);
+$('#aiSave').addEventListener('click', saveImageCfg);
+$('#avSave').addEventListener('click', saveVideoCfg);
+$('#aiReload').addEventListener('click', loadCanvasCfg);
 $('#amPreset').addEventListener('change', (e) => {
   // 切预设自动带出 baseUrl / model / 推理等级（用户手改过 baseUrl 的不动，免得白填）
   const opt = e.target.selectedOptions[0];
@@ -499,8 +620,51 @@ const ACTIONS = {
   },
 };
 
+/* 漫剧工作台的表单回写 + 剧本文件读入（只认 txt/md/json，docx 让用户另存） */
+function syncComic(e) {
+  const el = e.target;
+  if (!el) return;
+  if (el.id === 'cwFile') {
+    comic.readFile(el).then(() => render()).catch(() => render());
+    return;
+  }
+  const k = el.dataset?.cwstyle;
+  if (k) {
+    const d = state.data?.comic;
+    if (!d) return;
+    d.style = d.style ?? {};
+    d.style[k] = el.value;
+    comic.saveDraft?.();     // 边改边落盘，刷新不丢
+    return;
+  }
+  // 粘剧本：只存草稿，不重绘（重绘会把用户正在打的长文打断）
+  if (el.id === 'cwPaste') {
+    const d = state.data?.comic;
+    if (d) d.raw = el.value;
+    comic.saveDraft?.();
+    return;
+  }
+  // 主体资产卡片上改的生成提示词：按 'cast:0:0' 存回该版本，刷新不丢
+  const assetKey = el.dataset?.cwassetprompt;
+  if (assetKey) {
+    comic.setAssetPrompt?.(assetKey, el.value);
+    return;
+  }
+  // 分集详情里的段提示词：改一行存一行，不重绘
+  const segId = el.dataset?.cwprompt;
+  if (segId) {
+    const d = state.data?.comic;
+    if (!d) return;
+    d.prompts = d.prompts ?? {};
+    d.prompts[segId] = el.value;
+    comic.saveDraft?.();     // 关键：不落盘的话刷新就退回引擎原提示词
+  }
+}
+document.addEventListener('input', syncComic);
+document.addEventListener('change', syncComic);
+
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack],[data-novelcompose],[data-aipreset],[data-aictx],[data-aichar],[data-noveltidy],[data-novelrestore],[data-noveltitlegen],[data-novelautotitles],[data-novelchnav]');
+  const btn = e.target.closest('[data-view],[data-goto],[data-run],[data-act],[data-copy],[data-fmt],[data-optmode],[data-aspect],[data-tpl],[data-linechar],[data-titlegenre],[data-genep],[data-genepview],[data-shotep],[data-shotview],[data-genre],[data-gfilter],[data-openurl],[data-deaitarget],[data-deai-adopt],[data-novelopen],[data-novelnew],[data-novelexport],[data-noveldelete],[data-novelspick],[data-noveldelch],[data-noveladdch],[data-novelpanel],[data-novelsave],[data-novelcopych],[data-noveltrack],[data-novelcompose],[data-aipreset],[data-aictx],[data-aichar],[data-noveltidy],[data-novelrestore],[data-noveltitlegen],[data-novelautotitles],[data-novelchnav],[data-cwtab],[data-cwact],[data-cwep],[data-cwpreset],[data-cwwork],[data-cwchar],[data-cwseg]');
   if (!btn) return;
 
   // 榜单卡片里的小链接（如「去红果搜」）：卡片整块是 <a>，这里要拦住外层跳转
@@ -512,6 +676,30 @@ document.addEventListener('click', (e) => {
   if (btn.dataset.view !== undefined) { state.view = btn.dataset.view; save(); render(); lazyLoad(state.view); return; }
   if (btn.dataset.goto !== undefined) { state.view = btn.dataset.goto; save(); render(); return; }
   if (btn.dataset.run !== undefined) { const k = btn.dataset.run; run(k, RUNNERS[k]); return; }
+  // 一键开拍的单步重跑：带步骤 id，走不了 data-run 那套「键名即 runner 名」的分发
+  // 漫剧工作台：四个模块切换 / 模块内动作 / 选集 / 选风格 / 打开分集详情 / 单张资产出图
+  if (btn.dataset.cwtab !== undefined) { comic.setTab(btn.dataset.cwtab); return; }
+  if (btn.dataset.cwwork !== undefined) { comic.act('openWork', btn.dataset.cwwork).then(() => render()).catch(() => render()); return; }
+  if (btn.dataset.cwseg !== undefined) { comic.act('openSeg', btn.dataset.cwseg).then(() => render()).catch(() => render()); return; }
+  if (btn.dataset.cwchar !== undefined) {
+    comic.act('genChar', btn.dataset.cwchar).then(() => render()).catch((e) => { render(); toast(String(e.message ?? e).slice(0, 90), 'err'); });
+    return;
+  }
+  if (btn.dataset.cwact !== undefined) {
+    comic.act(btn.dataset.cwact, btn.dataset.cwarg).then(() => render()).catch((e) => { render(); toast(String(e.message ?? e).slice(0, 90), 'err'); });
+    return;
+  }
+  if (btn.dataset.cwep !== undefined) {
+    if (state.data.comic) { state.data.comic.selEp = Number(btn.dataset.cwep); save(); render(); }
+    return;
+  }
+  if (btn.dataset.cwpreset !== undefined) {
+    if (state.data.comic) {
+      state.data.comic.style = { ...(state.data.comic.style ?? {}), preset: btn.dataset.cwpreset };
+      save(); render();
+    }
+    return;
+  }
   if (btn.dataset.act !== undefined) {
     const [name, arg] = btn.dataset.act.split(':');
     // 破坏性动作要二次确认；不能再用 window.confirm（iframe 里会被拦掉）
